@@ -223,7 +223,7 @@ class NasaPacketParser:
       elif kind == 3:
         if dsCnt != 1:
           raise BaseException(f"Invalid encoded packet containing a struct: {tools.bin2hex(p)}")
-        ds.append(["00000", p[off:]])
+        ds.append(["-1", "STRUCTURE", p[off:], tools.bin2hex(p[off:]), p[off:], [p[off:]]])
         break
       messageNumber = struct.unpack(">H",p[off: off+2])[0]
       value = p[off+2:off+2+s]
@@ -246,12 +246,10 @@ class NasaPacketParser:
         valuedec.append(intval/10.0)
       #log.debug(f"  msgnum: {hex(messageNumber)}")
       #log.debug(f"  content: {value}")
-      for t in nasa_message_numbers:
-        if t[0] == messageNumber:
-          desc=t[1]
-          break
-      else:
-        desc ="UNSPECIFIED"
+      try:
+        desc = nasa_message_name(messageNumber)
+      except:
+        desc = "UNSPECIFIED"
       log.info (f"  {hex(messageNumber)} ({desc}): {valuehex}")
       ds.append([messageNumber, desc, valuehex, value, valuedec])
       off += 2+s
