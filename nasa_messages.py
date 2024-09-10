@@ -770,17 +770,17 @@ nasa_message_numbers = [
 ]
 
 def nasa_message_name(message_number):
-	for ns in nasa_message_numbers:
-		if ns[0] == message_number:
-			return ns[1]
-	else:
-		raise BaseException('Message number not found')
+  for ns in nasa_message_numbers:
+    if ns[0] == message_number:
+      return ns[1]
+  else:
+    raise BaseException('Message number not found')
 
 def nasa_message_lookup(message_name):
-	for ns in nasa_message_numbers:
-		if ns[1] == message_name:
-			return ns[0]
-	raise BaseException('Name not found')
+  for ns in nasa_message_numbers:
+    if ns[1] == message_name:
+      return ns[0]
+  raise BaseException('Name not found')
 
 # on NASA protocol, setting the same value is not the way to inform EHS of the 
 # zone current temperature.
@@ -804,7 +804,7 @@ def nasa_send_zone2_temperature(temp):
   # notifying of the value
   nonce="A5"
   temp = int(temp*10)
-  return tools.hex2bin(source+dest+"C014"+nonce+"03406F02411801423A"+hex(0x10000+temp)[3:])
+  return tools.hex2bin(source+dest+"C014"+nonce+"03406F0241180242DA"+hex(0x10000+temp)[3:])
 
 def nasa_dhw_power(enabled, temp=55):
   source="510000"
