@@ -58,7 +58,7 @@ class COPMQTTHandler(MQTTHandler):
   def publish(self, valueInt):
     self.mqtt_client.publish(self.topic, valueInt)
     # compute COP and publish the value as well
-    self.mqtt_client.publish(self.topic + "_COP", nasa_state[nasa_message_name(0x4426)] / valueInt)
+    self.mqtt_client.publish(self.topic + "_cop", nasa_state[nasa_message_name(0x4426)] / valueInt)
 
 class Zone2IntDiv10MQTTHandler(IntDiv10MQTTHandler):
   def action(self, client, userdata, msg):
@@ -102,11 +102,17 @@ def rx_event_nasa(p):
 
 # once in a while, publish zone2 current temp
 def publisher_thread():
+  global pgw
   while True:
-    time.sleep(10)
-    zone2_temp_name = nasa_message_name(0x42D4)
-    if nasa_message_name(0x42D4) in nasa_state:
-      zone2_handler.publish(nasa_state[zone2_temp_name])
+    #interval for zone2 temp republishing is 30 seconds
+    time.sleep(30)
+    try:
+      zone2_temp_name = nasa_message_name(0x42D4)
+      if zone2_temp_name in nasa_state:
+        #zone2_handler.publish()
+        pgw.packet_tx(nasa_send_zone2_temperature(float(int(nasa_state[zone2_temp_name]))/10))
+    except:
+      traceback.print_exc()
 
 def mqtt_startup_thread():
   global mqtt_client
@@ -115,7 +121,6 @@ def mqtt_startup_thread():
     if rc==0:
       mqtt_setup()
       pass
-
 
   mqtt_client = mqtt.Client('samsung_ehs',clean_session=True)
   mqtt_client.on_connect=on_connect
