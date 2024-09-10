@@ -10,6 +10,9 @@ The tricky part was to find how to communicate with the F3/F4 bus, using a THVD8
 
 I'm designing a PCB to allow for USB<->F3/F4 to allow for more people to play with this.
 
+## How to
+Just execute the samsung_mqtt_home_assistant.py script after tweaking its values (extended configuration means to come)
+
 ## Future evolutions
 
 Many things are under construction:
