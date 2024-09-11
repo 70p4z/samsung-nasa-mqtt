@@ -124,10 +124,10 @@ class PacketGateway:
               if p[-1] != 0x34:
                 raise BaseException("Invalid end of packet termination (expected 34)")
               pdata=p[3:-3]
-              log.debug(f'crc computed against {tools.bin2hex(pdata)}')
+              log.debug("crc computed against "+tools.bin2hex(pdata))
               crc=binascii.crc_hqx(pdata, 0)
               if crc != end[0]:
-                raise BaseException(f"Invalid CRC (expected:{crc}, observed:{hex(end[0])})")
+                raise BaseException("Invalid CRC (expected:"+hex(crc)+", observed:"+hex(end[0])+")")
 
               # create a queue event for the received packet
               self.seriallock.release()
@@ -185,7 +185,7 @@ class NasaPacketParser:
     if len(p) < 3+3+1+1+1+1:
       raise BaseException("Too short NASA packet")
 
-    log.info(f"{tools.bin2hex(p)}")
+    log.info(tools.bin2hex(p))
 
     src = p[0:3]
     dst = p[3:6]
@@ -206,7 +206,7 @@ class NasaPacketParser:
     if payloadType < len (NasaPayloadTypes):
       payloadTypeStr=NasaPayloadTypes[payloadType]
 
-    log.info(f"src:{tools.bin2hex(src)} dst:{tools.bin2hex(dst)} type:{packetTypStr} ins:{payloadTypeStr} nonce:{hex(packetNumber)}")
+    log.info("src:"+tools.bin2hex(src)+" dst:"+tools.bin2hex(dst)+" type:"+packetTypStr+" ins:"+payloadTypeStr+" nonce:"+hex(packetNumber))
 
     ds = []
     off=10
@@ -222,7 +222,7 @@ class NasaPacketParser:
         s = 4
       elif kind == 3:
         if dsCnt != 1:
-          raise BaseException(f"Invalid encoded packet containing a struct: {tools.bin2hex(p)}")
+          raise BaseException("Invalid encoded packet containing a struct: "+tools.bin2hex(p))
         ds.append(["-1", "STRUCTURE", p[off:], tools.bin2hex(p[off:]), p[off:], [p[off:]]])
         break
       messageNumber = struct.unpack(">H",p[off: off+2])[0]
@@ -250,7 +250,7 @@ class NasaPacketParser:
         desc = nasa_message_name(messageNumber)
       except:
         desc = "UNSPECIFIED"
-      log.info (f"  {hex(messageNumber)} ({desc}): {valuehex}")
+      log.info ("  "+hex(messageNumber)+" ("+desc+"): "+valuehex)
       ds.append([messageNumber, desc, valuehex, value, valuedec])
       off += 2+s
 

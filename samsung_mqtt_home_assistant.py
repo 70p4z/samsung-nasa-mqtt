@@ -117,7 +117,6 @@ def publisher_thread():
 def mqtt_startup_thread():
   global mqtt_client
   def on_connect(client, userdata, flags, rc):
-    print(f"on_connect: rc={rc}")
     if rc==0:
       mqtt_setup()
       pass
