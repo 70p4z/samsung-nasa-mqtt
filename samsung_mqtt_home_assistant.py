@@ -20,6 +20,17 @@ logging.basicConfig(format=LOGFORMAT)
 log = logging.getLogger("sample")
 log.setLevel(LOGLEVEL)
 
+def auto_int(x):
+  return int(x, 0)
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--mqtt-host', default="192.168.0.4", help="host to connect to the MQTT broker")
+parser.add_argument('--mqtt-port', default="1883", type=auto_int, help="port of the MQTT broker")
+parser.add_argument('--serial-host', default="127.0.0.1",help="host to connect the serial interface endpoint (i.e. socat /dev/ttyUSB0,parenb,raw,echo=0,b9600,nonblock,min=0 tcp-listen:7001,reuseaddr,fork )")
+parser.add_argument('--serial-port', default="7001", type=auto_int, help="port to connect the serial interface endpoint")
+parser.add_argument('--nasa-interval', default="30", type=auto_int, help="Interval in seconds to republish MQTT values set from the MQTT side (useful for temperature mainly)")
+args = parser.parse_args()
+
 # NASA state
 nasa_state = {}
 mqtt_client = None
@@ -105,7 +116,7 @@ def publisher_thread():
   global pgw
   while True:
     #interval for zone2 temp republishing is 30 seconds
-    time.sleep(30)
+    time.sleep(args.nasa_interval)
     try:
       zone2_temp_name = nasa_message_name(0x42D4)
       if zone2_temp_name in nasa_state:
@@ -128,7 +139,7 @@ def mqtt_startup_thread():
   # after the current script is executed
   while True:
     try:
-      mqtt_client.connect('192.168.0.4', 1883)
+      mqtt_client.connect(args.mqtt_host, args.mqtt_port)
       mqtt_client.loop_start()
       mqtt_setup()
       break
@@ -190,6 +201,6 @@ threading.Thread(name="publisher", target=publisher_thread).start()
 threading.Thread(name="mqtt_startup", target=mqtt_startup_thread).start()
 
 #todo: make that parametrized
-pgw = packetgateway.PacketGateway("127.0.0.1", 7001, rx_event=rx_event_nasa)
+pgw = packetgateway.PacketGateway(args.serial_host, args.serial_port, rx_event=rx_event_nasa)
 parser = packetgateway.NasaPacketParser()
 pgw.start()
