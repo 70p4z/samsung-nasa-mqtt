@@ -195,6 +195,7 @@ def mqtt_setup():
   mqtt_create_topic(0x4237, 'homeassistant/sensor/samsung_ehs_temp_dhw/config', 'temperature', 'Samsung EHS Temp DHW Tank', 'homeassistant/sensor/samsung_ehs_temp_dhw/state', '°C', IntDiv10MQTTHandler, None)
   mqtt_create_topic(0x4028, 'homeassistant/binary_sensor/samsung_ehs_op/config', 'switch', 'Samsung EHS Operating', 'homeassistant/binary_sensor/samsung_ehs_op/state', '', ONOFFMQTTHandler, None)
   mqtt_create_topic(0x402E, 'homeassistant/binary_sensor/samsung_ehs_defrosting_op/config', 'switch', 'Samsung EHS Defrosting', 'homeassistant/binary_sensor/samsung_ehs_defrosting_op/state', '', ONOFFMQTTHandler, None)
+  mqtt_create_topic(0x82FE, 'homeassistant/sensor/samsung_ehs_water_pressure/config', 'pressure', 'Samsung EHS Water Pressure', 'homeassistant/sensor/samsung_ehs_water_pressure/state', 'bar', IntDiv100MQTTHandler, None)
 
 threading.Thread(name="publisher", target=publisher_thread).start()
 threading.Thread(name="mqtt_startup", target=mqtt_startup_thread).start()
