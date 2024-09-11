@@ -782,12 +782,21 @@ def nasa_message_lookup(message_name):
       return ns[0]
   raise BaseException('Name not found')
 
+def nasa_set_u16(intMsgNumber, intvalueu16):
+  source="520000"
+  dest="B0FF20" # EHS
+  # notifying of the value
+  nonce="A5"
+  msgnum= hex(0x10000+intMsgNumber)[3:]
+  val= hex(0x10000+intvalueu16)[3:]
+  return tools.hex2bin(source+dest+"C013"+nonce+"01"+msgnum+val)
+
 # on NASA protocol, setting the same value is not the way to inform EHS of the 
 # zone current temperature.
 # for Zone 1: 
 #   instead of setting 4203, 
 #   must set messages 406f <guess:thermostatentity:01> 4076 <tempsensorenable=01> 423a <temp=00fa>
-def nasa_send_zone1_temperature(temp):
+def nasa_set_zone1_temperature(temp):
   source="510000"
   dest="B0FF20" # EHS
   # notifying of the value
@@ -798,7 +807,7 @@ def nasa_send_zone1_temperature(temp):
 # for Zone 2:
 #   instead of setting 42d4, 
 #   must set messages 406f <guess:thermostatentity:02> 4118 <tempsensorenable=01> 42da <temp=00fa>
-def nasa_send_zone2_temperature(temp):
+def nasa_set_zone2_temperature(temp):
   source="520000"
   dest="B0FF20" # EHS
   # notifying of the value

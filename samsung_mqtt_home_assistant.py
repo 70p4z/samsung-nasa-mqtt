@@ -12,7 +12,7 @@ import json
 from nasa_messages import nasa_message_lookup
 from nasa_messages import nasa_message_name
 from nasa_messages import nasa_dhw_power
-from nasa_messages import nasa_send_zone1_temperature, nasa_send_zone2_temperature
+from nasa_messages import nasa_set_zone1_temperature, nasa_set_zone2_temperature, nasa_set_u16
 
 LOGLEVEL = os.environ.get('LOGLEVEL', 'INFO').upper()
 LOGFORMAT = '%(asctime)s %(levelname)s %(threadName)s %(message)s'
@@ -75,7 +75,7 @@ class Zone2IntDiv10MQTTHandler(IntDiv10MQTTHandler):
   def action(self, client, userdata, msg):
     mqttpayload = msg.payload.decode('utf-8')
     global pgw
-    pgw.packet_tx(nasa_send_zone2_temperature(float(mqttpayload)))
+    pgw.packet_tx(nasa_set_zone2_temperature(float(mqttpayload)))
 
 #handler(source, dest, isInfo, protocolVersion, retryCounter, packetType, payloadType, packetNumber, dataSets)
 def rx_nasa_handler(*args, **kwargs):
@@ -120,8 +120,7 @@ def publisher_thread():
     try:
       zone2_temp_name = nasa_message_name(0x42D4)
       if zone2_temp_name in nasa_state:
-        #zone2_handler.publish()
-        pgw.packet_tx(nasa_send_zone2_temperature(float(int(nasa_state[zone2_temp_name]))/10))
+        pgw.packet_tx(nasa_set_zone2_temperature(float(int(nasa_state[zone2_temp_name]))/10))
     except:
       traceback.print_exc()
 
