@@ -17,7 +17,7 @@ from nasa_messages import nasa_set_zone1_temperature, nasa_set_zone2_temperature
 LOGLEVEL = os.environ.get('LOGLEVEL', 'INFO').upper()
 LOGFORMAT = '%(asctime)s %(levelname)s %(threadName)s %(message)s'
 logging.basicConfig(format=LOGFORMAT)
-log = logging.getLogger("sample")
+log = logging.getLogger("samsung_nasa")
 log.setLevel(LOGLEVEL)
 
 def auto_int(x):
@@ -39,8 +39,9 @@ pgw = None
 zone2_handler = None
 
 class MQTTHandler():
-  def __init__(self, mqtt_client, topic):
+  def __init__(self, mqtt_client, topic, nasa_msgnum):
     self.topic = topic
+    self.nasa_msgnum = nasa_msgnum
     self.mqtt_client = mqtt_client
 
   def publish(self, valueInt):
@@ -52,6 +53,15 @@ class MQTTHandler():
 class IntDiv10MQTTHandler(MQTTHandler):
   def publish(self, valueInt):
     self.mqtt_client.publish(self.topic, valueInt/10.0)
+
+  def action(self, client, userdata, msg):
+    intval = int(float(msg.payload.decode('utf-8'))*10)
+    global pgw
+    pgw.packet_tx(nasa_set_u16(self.nasa_msgnum, intval))
+
+class IntDiv100MQTTHandler(MQTTHandler):
+  def publish(self, valueInt):
+    self.mqtt_client.publish(self.topic, valueInt/100.0)
 
 class ONOFFMQTTHandler(MQTTHandler):
   def publish(self, valueInt):
@@ -118,6 +128,10 @@ def publisher_thread():
     #interval for zone2 temp republishing is 30 seconds
     time.sleep(args.nasa_interval)
     try:
+      ## publish zone 1 and 2 values toward nasa (periodic )
+      # zone1_temp_name = nasa_message_name(0x4203)
+      # if zone1_temp_name in nasa_state:
+      #   pgw.packet_tx(nasa_set_zone1_temperature(float(int(nasa_state[zone1_temp_name]))/10))
       zone2_temp_name = nasa_message_name(0x42D4)
       if zone2_temp_name in nasa_state:
         pgw.packet_tx(nasa_set_zone2_temperature(float(int(nasa_state[zone2_temp_name]))/10))
@@ -159,7 +173,7 @@ def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state
     retain=True)
   nasa_name = nasa_message_name(nasa_msgnum)
   if not nasa_name in mqtt_published_vars:
-    handler = type_handler(mqtt_client, topic_state)
+    handler = type_handler(mqtt_client, topic_state, nasa_msgnum)
     mqtt_published_vars[nasa_name] = handler
   handler = mqtt_published_vars[nasa_name]
   if topic_set:
@@ -182,12 +196,12 @@ def mqtt_setup():
   mqtt_create_topic(0x4236, 'homeassistant/sensor/samsung_ehs_temp_water_in/config', 'temperature', 'Samsung EHS Temp Water In', 'homeassistant/sensor/samsung_ehs_temp_water_in/state', '°C', IntDiv10MQTTHandler, None)
   mqtt_create_topic(0x4238, 'homeassistant/sensor/samsung_ehs_temp_water_out/config', 'temperature', 'Samsung EHS Temp Water Out', 'homeassistant/sensor/samsung_ehs_temp_water_out/state', '°C', IntDiv10MQTTHandler, None)
   mqtt_create_topic(0x420C, 'homeassistant/sensor/samsung_ehs_temp_outer/config', 'temperature', 'Samsung EHS Temp Outer', 'homeassistant/sensor/samsung_ehs_temp_outer/state', '°C', IntDiv10MQTTHandler, None)
-  mqtt_create_topic(0x4201, 'homeassistant/sensor/samsung_ehs_temp_zone1_target/config', 'temperature', 'Samsung EHS Temp Zone1 Target', 'homeassistant/sensor/samsung_ehs_temp_zone1_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/sensor/samsung_ehs_temp_zone1_target/set')
-  mqtt_create_topic(0x4203, 'homeassistant/sensor/samsung_ehs_temp_zone1/config', 'temperature', 'Samsung EHS Temp Zone1', 'homeassistant/sensor/samsung_ehs_temp_zone1/state', '°C', IntDiv10MQTTHandler, None)
+  mqtt_create_topic(0x4201, 'homeassistant/number/samsung_ehs_temp_zone1_target/config', 'temperature', 'Samsung EHS Temp Zone1 Target', 'homeassistant/number/samsung_ehs_temp_zone1_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1_target/set')
+  mqtt_create_topic(0x4203, 'homeassistant/number/samsung_ehs_temp_zone1/config', 'temperature', 'Samsung EHS Temp Zone1', 'homeassistant/number/samsung_ehs_temp_zone1/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1/set')
   mqtt_create_topic(0x4205, 'homeassistant/sensor/samsung_ehs_temp_eva_in/config', 'temperature', 'Samsung EHS Temp EVA In', 'homeassistant/sensor/samsung_ehs_temp_eva_in/state', '°C', IntDiv10MQTTHandler, None)
   mqtt_create_topic(0x428C, 'homeassistant/sensor/samsung_ehs_temp_mixing_valve_zone1/config', 'temperature', 'Samsung EHS Temp Mixing Valve Zone1', 'homeassistant/sensor/samsung_ehs_temp_mixing_valve_zone1/state', '°C', IntDiv10MQTTHandler, None)
-  zone2_handler = mqtt_create_topic(0x42D4, 'homeassistant/sensor/samsung_ehs_temp_zone2/config', 'temperature', 'Samsung EHS Temp Zone2', 'homeassistant/sensor/samsung_ehs_temp_zone2/state', '°C', Zone2IntDiv10MQTTHandler, 'homeassistant/sensor/samsung_ehs_temp_zone2/set')
-  mqtt_create_topic(0x42D6, 'homeassistant/sensor/samsung_ehs_temp_zone2_target/config', 'temperature', 'Samsung EHS Temp Zone2 Target', 'homeassistant/sensor/samsung_ehs_temp_zone2_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/sensor/samsung_ehs_temp_zone2_target/set')
+  zone2_handler = mqtt_create_topic(0x42D4, 'homeassistant/number/samsung_ehs_temp_zone2/config', 'temperature', 'Samsung EHS Temp Zone2', 'homeassistant/number/samsung_ehs_temp_zone2/state', '°C', Zone2IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2/set')
+  mqtt_create_topic(0x42D6, 'homeassistant/number/samsung_ehs_temp_zone2_target/config', 'temperature', 'Samsung EHS Temp Zone2 Target', 'homeassistant/number/samsung_ehs_temp_zone2_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2_target/set')
   mqtt_create_topic(0x42D8, 'homeassistant/sensor/samsung_ehs_temp_outlet_zone1/config', 'temperature', 'Samsung EHS Temp Outlet Zone1', 'homeassistant/sensor/samsung_ehs_temp_outlet_zone1/state', '°C', IntDiv10MQTTHandler, None)
   mqtt_create_topic(0x42D9, 'homeassistant/sensor/samsung_ehs_temp_outlet_zone2/config', 'temperature', 'Samsung EHS Temp Outlet Zone2', 'homeassistant/sensor/samsung_ehs_temp_outlet_zone2/state', '°C', IntDiv10MQTTHandler, None)
   mqtt_create_topic(0x42E9, 'homeassistant/sensor/samsung_ehs_water_flow/config', 'volume_flow_rate', 'Samsung EHS Water Flow', 'homeassistant/sensor/samsung_ehs_water_flow/state', 'L/min', IntDiv10MQTTHandler, None)
