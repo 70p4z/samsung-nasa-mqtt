@@ -792,6 +792,7 @@ def nasa_set_u16(intMsgNumber, intvalueu16):
   val= hex(0x10000+intvalueu16)[3:]
   return tools.hex2bin(source+dest+"C013"+nonce+"01"+msgnum+val)
 
+# TYPE: notification
 # on NASA protocol, setting the same value is not the way to inform EHS of the 
 # zone current temperature.
 # for Zone 1: 
@@ -805,6 +806,7 @@ def nasa_set_zone1_temperature(temp):
   temp = int(temp*10)
   return tools.hex2bin(source+dest+"C014"+nonce+"03406F00407601423A"+hex(0x10000+temp)[3:])
 
+# TYPE: notification
 # for Zone 2:
 #   instead of setting 42d4, 
 #   must set messages 406f <guess:thermostatentity:02> 4118 <tempsensorenable=01> 42da <temp=00fa>
@@ -816,6 +818,7 @@ def nasa_set_zone2_temperature(temp):
   temp = int(temp*10)
   return tools.hex2bin(source+dest+"C014"+nonce+"03406F0241180242DA"+hex(0x10000+temp)[3:])
 
+# TYPE: request/ack
 def nasa_dhw_power(enabled, temp=55):
   source="510000"
   dest="B0FF20" # EHS
@@ -826,3 +829,52 @@ def nasa_dhw_power(enabled, temp=55):
   if enabled:
     opmode = "01"
   return tools.hex2bin(source+dest+"C013"+nonce+"034065"+opmode+"4066014235"+hex(0x10000+temp)[3:])
+
+zone_power_modes = {
+  "AUTO": "00",
+  "COOL": "01",
+  "HOT": "04",
+}
+# TYPE: request/ack
+#default mode is heating
+def nasa_zone_power(enabled=False, zone=1, target_temp=0, mode="HOT"):
+  source="510000"
+  dest="B0FF20" # EHS
+  nonce="A5"
+  # prepare temp value
+  target_temp = int(target_temp*10)
+  target_temp_hex = hex(0x10000+target_temp)[3:]
+  msgcount=0
+  payload=""
+
+  powerstate="00"
+  if enabled:
+    powerstate="01"
+
+  if not mode in zone_power_modes:
+    raise BaseException("Unsupported mode, check if in zone_power_modes enum")
+
+  if zone == 1:
+    # enabled
+    payload +="4000"+ powerstate
+    # mode
+    payload +="4001"+ zone_power_modes[mode]
+    msgcount=2
+    if target_temp!=0:
+      # target temp
+      payload +="4201"+ target_temp_hex
+      msgcount=3
+  elif zone == 2:
+    # enabled
+    payload +="411e"+ powerstate
+    # mode
+    payload +="4001"+ zone_power_modes[mode]
+    msgcount=2
+    if target_temp!=0:
+      # target temp
+      payload +="42d6"+ target_temp_hex
+      msgcount=3
+  else:
+    raise BaseException("Unsupported zone ("+hex(zone)+"), only 1 or 2")
+    
+  return tools.hex2bin(source+dest+"C013"+nonce+hex(msgcount+0x100)[3:]+payload)
