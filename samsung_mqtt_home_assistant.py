@@ -8,6 +8,8 @@ import argparse
 import traceback
 import paho.mqtt.client as mqtt
 import json
+import sys
+import signal
 
 from nasa_messages import *
 
@@ -26,6 +28,7 @@ parser.add_argument('--mqtt-port', default="1883", type=auto_int, help="port of 
 parser.add_argument('--serial-host', default="127.0.0.1",help="host to connect the serial interface endpoint (i.e. socat /dev/ttyUSB0,parenb,raw,echo=0,b9600,nonblock,min=0 tcp-listen:7001,reuseaddr,fork )")
 parser.add_argument('--serial-port', default="7001", type=auto_int, help="port to connect the serial interface endpoint")
 parser.add_argument('--nasa-interval', default="30", type=auto_int, help="Interval in seconds to republish MQTT values set from the MQTT side (useful for temperature mainly)")
+parser.add_argument('--nasa-timeout', default="60", type=auto_int, help="Timeout before considering communication fault")
 args = parser.parse_args()
 
 # NASA state
@@ -33,6 +36,7 @@ nasa_state = {}
 mqtt_client = None
 mqtt_published_vars = {}
 pgw = None
+last_nasa_rx = 0
 
 def nasa_update(msgnum, intval):
   try:
@@ -136,6 +140,8 @@ class Zone2HOTSwitchMQTTHandler(ONOFFMQTTHandler):
 #handler(source, dest, isInfo, protocolVersion, retryCounter, packetType, payloadType, packetNumber, dataSets)
 def rx_nasa_handler(*args, **kwargs):
   global mqtt_client
+  global last_nasa_rx
+  last_nasa_rx = time.time()
   packetType = kwargs["packetType"]
   payloadType = kwargs["payloadType"]
   dataSets = kwargs["dataSets"]
@@ -161,6 +167,8 @@ def rx_nasa_handler(*args, **kwargs):
         # use the topic name and payload formatter from the mqtt publish array
         mqtt_p_v = mqtt_published_vars[ds[1]]
         mqtt_p_v.publish(ds[4][0])
+
+      mqtt_client.publish('homeassistant/sensor/samsung_ehs/nasa_'+hex(ds[0]), payload=ds[2], retain=True)
     except:
       traceback.print_exc()
 
@@ -171,9 +179,12 @@ def rx_event_nasa(p):
 # once in a while, publish zone2 current temp
 def publisher_thread():
   global pgw
+  global last_nasa_rx
   while True:
     time.sleep(args.nasa_interval)
     try:
+      # notify no error from fake controller (just to make sure no troubles)
+      pgw.packet_tx(nasa_notify_error(0))
       # publish zone 1 and 2 values toward nasa (periodic keep alive)
       zone1_temp_name = nasa_message_name(0x423A) # don't use value for the EHS, but from sensors instead
       if zone1_temp_name in nasa_state:
@@ -183,6 +194,10 @@ def publisher_thread():
         pgw.packet_tx(nasa_set_zone2_temperature(float(int(nasa_state[zone2_temp_name]))/10))
     except:
       traceback.print_exc()
+    # handle communication timeout
+    if last_nasa_rx + args.nasa_timeout < time.time():
+      log.info("Communication lost!")
+      os.kill(os.getpid(), signal.SIGTERM)
 
 def mqtt_startup_thread():
   global mqtt_client
@@ -206,8 +221,9 @@ def mqtt_startup_thread():
       traceback.print_exc()
     time.sleep(1) 
 
-def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state, unit_name, type_handler, topic_set):
-  discovery_data={"name": name}
+def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state, unit_name, type_handler, topic_set, desc_base={}):
+  discovery_data=desc_base
+  discovery_data["name"]= name
   topic='notopic'
   if topic_set:
     topic=topic_set
@@ -258,14 +274,12 @@ def mqtt_setup():
   mqtt_create_topic(0x82FE, 'homeassistant/sensor/samsung_ehs_water_pressure/config', 'pressure', 'Samsung EHS Water Pressure', 'homeassistant/sensor/samsung_ehs_water_pressure/state', 'bar', IntDiv100MQTTHandler, None)
   
   mqtt_create_topic(0x4000, 'homeassistant/switch/samsung_ehs_zone1/config', None, 'Samsung EHS Zone1', 'homeassistant/switch/samsung_ehs_zone1/state', None, Zone1HOTSwitchMQTTHandler, 'homeassistant/switch/samsung_ehs_zone1/set')
-  mqtt_create_topic(0x4201, 'homeassistant/number/samsung_ehs_temp_zone1_target/config', 'temperature', 'Samsung EHS Temp Zone1 Target', 'homeassistant/number/samsung_ehs_temp_zone1_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1_target/set')
-  #mqtt_create_topic(0x4203, 'homeassistant/sensor/samsung_ehs_temp_zone1_current/config', 'temperature', 'Samsung EHS Temp Zone1 Current', 'homeassistant/sensor/samsung_ehs_temp_zone1_current/state', '°C', IntDiv10MQTTHandler, None)
-  mqtt_create_topic(0x423A, 'homeassistant/number/samsung_ehs_temp_zone1/config', 'temperature', 'Samsung EHS Temp Zone1', 'homeassistant/sensor/samsung_ehs_temp_zone1/state', '°C', Zone1IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1/set')
+  mqtt_create_topic(0x4201, 'homeassistant/number/samsung_ehs_temp_zone1_target/config', 'temperature', 'Samsung EHS Temp Zone1 Target', 'homeassistant/number/samsung_ehs_temp_zone1_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1_target/set', {"min": 16, "max": 28, "step": 0.5})
+  mqtt_create_topic(0x423A, 'homeassistant/number/samsung_ehs_temp_zone1/config', 'temperature', 'Samsung EHS Temp Zone1', 'homeassistant/number/samsung_ehs_temp_zone1/state', '°C', Zone1IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1/set')
   mqtt_create_topic(0x42D8, 'homeassistant/sensor/samsung_ehs_temp_outlet_zone1/config', 'temperature', 'Samsung EHS Temp Outlet Zone1', 'homeassistant/sensor/samsung_ehs_temp_outlet_zone1/state', '°C', IntDiv10MQTTHandler, None)
   
   mqtt_create_topic(0x411e, 'homeassistant/switch/samsung_ehs_zone2/config', None, 'Samsung EHS Zone2', 'homeassistant/switch/samsung_ehs_zone2/state', None, Zone2HOTSwitchMQTTHandler, 'homeassistant/switch/samsung_ehs_zone2/set')
-  mqtt_create_topic(0x42D6, 'homeassistant/number/samsung_ehs_temp_zone2_target/config', 'temperature', 'Samsung EHS Temp Zone2 Target', 'homeassistant/number/samsung_ehs_temp_zone2_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2_target/set')
-  #mqtt_create_topic(0x42D4, 'homeassistant/sensor/samsung_ehs_temp_zone2_current/config', 'temperature', 'Samsung EHS Temp Zone2 Current', 'homeassistant/sensor/samsung_ehs_temp_zone2_current/state', '°C', IntDiv10MQTTHandler, None)
+  mqtt_create_topic(0x42D6, 'homeassistant/number/samsung_ehs_temp_zone2_target/config', 'temperature', 'Samsung EHS Temp Zone2 Target', 'homeassistant/number/samsung_ehs_temp_zone2_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2_target/set', {"min": 16, "max": 28, "step": 0.5})
   mqtt_create_topic(0x42DA, 'homeassistant/number/samsung_ehs_temp_zone2/config', 'temperature', 'Samsung EHS Temp Zone2', 'homeassistant/number/samsung_ehs_temp_zone2/state', '°C', Zone2IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2/set')
   mqtt_create_topic(0x42D9, 'homeassistant/sensor/samsung_ehs_temp_outlet_zone2/config', 'temperature', 'Samsung EHS Temp Outlet Zone2', 'homeassistant/sensor/samsung_ehs_temp_outlet_zone2/state', '°C', IntDiv10MQTTHandler, None)
 
@@ -280,3 +294,7 @@ threading.Thread(name="mqtt_startup", target=mqtt_startup_thread).start()
 pgw = packetgateway.PacketGateway(args.serial_host, args.serial_port, rx_event=rx_event_nasa)
 parser = packetgateway.NasaPacketParser()
 pgw.start()
+
+log.info("-----------------------------------------------------------------")
+log.info("Startup")
+

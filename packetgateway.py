@@ -223,7 +223,7 @@ class NasaPacketParser:
       elif kind == 3:
         if dsCnt != 1:
           raise BaseException("Invalid encoded packet containing a struct: "+tools.bin2hex(p))
-        ds.append(["-1", "STRUCTURE", p[off:], tools.bin2hex(p[off:]), p[off:], [p[off:]]])
+        ds.append([-1, "STRUCTURE", p[off:], tools.bin2hex(p[off:]), p[off:], [p[off:]]])
         break
       messageNumber = struct.unpack(">H",p[off: off+2])[0]
       value = p[off+2:off+2+s]
