@@ -298,3 +298,12 @@ pgw.start()
 log.info("-----------------------------------------------------------------")
 log.info("Startup")
 
+"""
+TODO:
+- detect loss of communication from the ASHP
+
+
+
+
+
+"""

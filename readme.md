@@ -13,6 +13,10 @@ I'm designing a PCB to allow for USB<->F3/F4 to allow for more people to play wi
 ## How to
 Just execute the samsung_mqtt_home_assistant.py script after tweaking its values (extended configuration means to come)
 
+## Demo
+Here is a screenshot of the available items for my Samsung Mono R290 5kW (AE050CXYBEK/EU)
+![alt Home Assistant screenshot](https://github.com/70p4z/samsung-nasa-mqtt/blob/main/home_assistant_list.png?raw=true)
+
 ## Future evolutions
 
 Many things are under construction:
