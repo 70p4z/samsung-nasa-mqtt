@@ -784,16 +784,19 @@ def nasa_message_lookup(message_name):
   raise BaseException('Name not found')
 
 nonce = 0xA4
+def getnonce():
+  global nonce
+  nonce+=1
+  nonce%=256
+  return nonce
 
 def nasa_set_u16(intMsgNumber, intvalueu16):
-  global nonce
   source="520000"
   dest="B0FF20" # EHS
   # notifying of the value
-  nonce+=1
   msgnum= hex(0x10000+intMsgNumber)[3:]
   val= hex(0x10000+intvalueu16)[3:]
-  return tools.hex2bin(source+dest+"C013"+ hex(0x100+nonce)[3:]+"01"+msgnum+val)
+  return tools.hex2bin(source+dest+"C013"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
 
 # TYPE: notification
 # on NASA protocol, setting the same value is not the way to inform EHS of the 
@@ -802,40 +805,44 @@ def nasa_set_u16(intMsgNumber, intvalueu16):
 #   instead of setting 4203, 
 #   must set messages 406f <guess:thermostatentity:01> 4076 <tempsensorenable=01> 423a <temp=00fa>
 def nasa_set_zone1_temperature(temp):
-  global nonce
   source="510000"
   dest="B0FFFF" # EHS
   # notifying of the value
-  nonce+=1
   temp = int(temp*10)
-  return tools.hex2bin(source+dest+"C014"+hex(0x100+nonce)[3:]+"03406F00407601423A"+hex(0x10000+temp)[3:])
+  return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"03406F00407601423A"+hex(0x10000+temp)[3:])
 
 # TYPE: notification
 # for Zone 2:
 #   instead of setting 42d4, 
 #   must set messages 406f <guess:thermostatentity:02> 4118 <tempsensorenable=01> 42da <temp=00fa>
 def nasa_set_zone2_temperature(temp):
-  global nonce
   source="520000"
   source="510000"
   dest="B0FFFF" # EHS
   # notifying of the value
-  nonce+=1
   temp = int(temp*10)
-  return tools.hex2bin(source+dest+"C014"+hex(0x100+nonce)[3:]+"03406F0041180142DA"+hex(0x10000+temp)[3:])
+  return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"03406F0041180142DA"+hex(0x10000+temp)[3:])
 
 # TYPE: request/ack
-def nasa_dhw_power(enabled, temp=55):
-  global nonce
+dhw_power_modes = {
+  "ECO": "00",
+  "STANDARD": "01",
+  "POWER": "02",
+  "FORCED": "03",
+}
+def nasa_dhw_power(enabled, mode="STANDARD"):
   source="510000"
   dest="B0FF20" # EHS
   # notifying of the value
-  nonce+=1
-  temp = int(temp*10)
   opmode="00"
   if enabled:
     opmode = "01"
-  return tools.hex2bin(source+dest+"C013"+hex(0x100+nonce)[3:]+"034065"+opmode+"4066014235"+hex(0x10000+temp)[3:])
+  if not mode in dhw_power_modes:
+    raise BaseException("Invalid mode selected")
+  mode = dhw_power_modes[mode]
+  #temp = int(temp*10)
+  #return tools.hex2bin(source+dest+"C013"+hex(0x100+getnonce())[3:]+"034065"+opmode+"4066014235"+hex(0x10000+temp)[3:])
+  return tools.hex2bin(source+dest+"C013"+hex(0x100+getnonce())[3:]+"024065"+opmode+"4066"+mode)
 
 zone_power_modes = {
   "AUTO": "00",
@@ -845,10 +852,8 @@ zone_power_modes = {
 # TYPE: request/ack
 #default mode is heating
 def nasa_zone_power(enabled=False, zone=1, target_temp=0, mode="HOT"):
-  global nonce
   source="510000"
   dest="B0FF20" # EHS
-  nonce+=1
   # prepare temp value
   target_temp = int(target_temp*10)
   target_temp_hex = hex(0x10000+target_temp)[3:]
@@ -885,11 +890,10 @@ def nasa_zone_power(enabled=False, zone=1, target_temp=0, mode="HOT"):
   else:
     raise BaseException("Unsupported zone ("+hex(zone)+"), only 1 or 2")
     
-  return tools.hex2bin(source+dest+"C013"+hex(0x100+nonce)[3:]+hex(msgcount+0x100)[3:]+payload)
+  return tools.hex2bin(source+dest+"C013"+hex(0x100+getnonce())[3:]+hex(msgcount+0x100)[3:]+payload)
 
-def nasa_notify_error(errcode=0):
-  global nonce
+def nasa_notify_error(is_master):
   source="510000"
   dest="B0FF20" # EHS
-  nonce+=1
-  return tools.hex2bin(source+dest+"C014"+hex(0x100+nonce)[3:]+"010202"+hex(errcode)[3:])
+  return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"0102020000")
+
