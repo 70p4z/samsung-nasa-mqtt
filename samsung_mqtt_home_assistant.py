@@ -65,6 +65,33 @@ class MQTTHandler():
   def action(self, client, userdata, msg):
     pass
 
+  def initread(self):
+    pass
+
+class FSVWriteMQTTHandler(MQTTHandler):
+  def publish(self, valueInt):
+    self.mqtt_client.publish(self.topic, valueInt)
+
+class FSVWrite1MQTTHandler(FSVWriteMQTTHandler):
+  def action(self, client, userdata, msg):
+    intval = int(float(msg.payload.decode('utf-8')))
+    if nasa_update(self.nasa_msgnum, intval):
+      global pgw
+      pgw.packet_tx(nasa_write_u8(self.nasa_msgnum, intval))
+  def initread(self):
+    global pgw
+    pgw.packet_tx(nasa_read_u8(self.nasa_msgnum))
+
+class FSVWrite2MQTTHandler(FSVWriteMQTTHandler):
+  def action(self, client, userdata, msg):
+    intval = int(float(msg.payload.decode('utf-8')))
+    if nasa_update(self.nasa_msgnum, intval):
+      global pgw
+      pgw.packet_tx(nasa_write_u16(self.nasa_msgnum, intval))
+  def initread(self):
+    global pgw
+    pgw.packet_tx(nasa_read_u16(self.nasa_msgnum))
+
 class IntDiv10MQTTHandler(MQTTHandler):
   def publish(self, valueInt):
     self.mqtt_client.publish(self.topic, valueInt/10.0)
@@ -150,7 +177,7 @@ def rx_nasa_handler(*args, **kwargs):
   if packetType != "normal":
     return
   # ignore read requests
-  if payloadType != "notification" and payloadType != "write":
+  if payloadType != "notification" and payloadType != "write" and payloadType != "response":
     return
 
   for ds in dataSets:
@@ -175,6 +202,13 @@ def rx_nasa_handler(*args, **kwargs):
 def rx_event_nasa(p):
   log.debug("packet received "+ tools.bin2hex(p))
   parser.parse_nasa(p, rx_nasa_handler)
+
+#todo: make that parametrized
+pgw = packetgateway.PacketGateway(args.serial_host, args.serial_port, rx_event=rx_event_nasa)
+parser = packetgateway.NasaPacketParser()
+pgw.start()
+#ensure gateway is available and publish mqtt is possible when receving values
+time.sleep(2)
 
 # once in a while, publish zone2 current temp
 def publisher_thread():
@@ -247,6 +281,9 @@ def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state
   if topic_set:
     mqtt_client.message_callback_add(topic_set, handler.action)
     mqtt_client.subscribe(topic_set)
+
+  if isinstance(handler, FSVWriteMQTTHandler):
+    handler.initread()
   
   return handler
 
@@ -286,14 +323,13 @@ def mqtt_setup():
   mqtt_create_topic(0x4065, 'homeassistant/switch/samsung_ehs_dhw_op/config', None, 'Samsung EHS DHW Operating', 'homeassistant/switch/samsung_ehs_dhw_op/state', '', DHWONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_dhw_op/set')
   mqtt_create_topic(0x4237, 'homeassistant/sensor/samsung_ehs_temp_dhw/config', 'temperature', 'Samsung EHS Temp DHW Tank', 'homeassistant/sensor/samsung_ehs_temp_dhw/state', '°C', IntDiv10MQTTHandler, None)
 
+  # FSV values
+  mqtt_create_topic(0x428A, 'homeassistant/number/samsung_ehs_4052_dt_target/config', 'temperature', 'Samsung EHS FSV4052 dT Target', 'homeassistant/number/samsung_ehs_4052_dt_target/state', '°C', FSVWrite2MQTTHandler, 'homeassistant/number/samsung_ehs_4052_dt_target/set', {"min": 2, "max": 8, "step": 1})
+  mqtt_create_topic(0x4093, 'homeassistant/number/samsung_ehs_2041_wl/config', None, 'Samsung EHS FSV2041 Water Law', 'homeassistant/number/samsung_ehs_2041_wl/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_2041_wl/set', {"min": 1, "max": 2, "step": 1})
+  mqtt_create_topic(0x4127, 'homeassistant/number/samsung_ehs_2093_tempctrl/config', None, 'Samsung EHS FSV2093 Temp Control', 'homeassistant/number/samsung_ehs_2093_tempctrl/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_2093_tempctrl/set', {"min": 1, "max": 4, "step": 1})
 
 threading.Thread(name="publisher", target=publisher_thread).start()
 threading.Thread(name="mqtt_startup", target=mqtt_startup_thread).start()
-
-#todo: make that parametrized
-pgw = packetgateway.PacketGateway(args.serial_host, args.serial_port, rx_event=rx_event_nasa)
-parser = packetgateway.NasaPacketParser()
-pgw.start()
 
 log.info("-----------------------------------------------------------------")
 log.info("Startup")

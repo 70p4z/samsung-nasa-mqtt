@@ -796,7 +796,44 @@ def nasa_set_u16(intMsgNumber, intvalueu16):
   # notifying of the value
   msgnum= hex(0x10000+intMsgNumber)[3:]
   val= hex(0x10000+intvalueu16)[3:]
+  #request
   return tools.hex2bin(source+dest+"C013"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
+
+def nasa_write_u8(intMsgNumber, intval):
+  source="520000"
+  dest="B0FF20" # EHS
+  # notifying of the value
+  msgnum= hex(0x10000+intMsgNumber)[-4:]
+  val= hex(0x100+intval)[-2:]
+  #write
+  return tools.hex2bin(source+dest+"C012"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
+
+def nasa_write_u16(intMsgNumber, intval):
+  source="520000"
+  dest="B0FF20" # EHS
+  # notifying of the value
+  msgnum= hex(0x10000+intMsgNumber)[-4:]
+  val= hex(0x10000+intval)[-4:]
+  #write
+  return tools.hex2bin(source+dest+"C012"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
+
+def nasa_read_u8(intMsgNumber):
+  source="520000"
+  dest="B0FF20" # EHS
+  # notifying of the value
+  msgnum= hex(0x10000+intMsgNumber)[-4:]
+  val= hex(0x10000)[-2:]
+  #write
+  return tools.hex2bin(source+dest+"C011"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
+
+def nasa_read_u16(intMsgNumber):
+  source="520000"
+  dest="B0FF20" # EHS
+  # notifying of the value
+  msgnum= hex(0x10000+intMsgNumber)[-4:]
+  val= hex(0x10000)[-4:]
+  #write
+  return tools.hex2bin(source+dest+"C011"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
 
 # TYPE: notification
 # on NASA protocol, setting the same value is not the way to inform EHS of the 
