@@ -237,6 +237,12 @@ def publisher_thread():
       zone2_temp_name = nasa_message_name(0x42DA) # don't use value for the EHS, but from sensors instead
       if zone2_temp_name in nasa_state:
         pgw.packet_tx(nasa_set_zone2_temperature(float(int(nasa_state[zone2_temp_name]))/10))
+
+      for name in mqtt_published_vars:
+        handler = mqtt_published_vars[name]
+        if not nasa_message_name(handler.nasa_msgnum) in nasa_state and isinstance(handler, FSVWriteMQTTHandler):
+          handler.initread()
+
     except:
       traceback.print_exc()
     # handle communication timeout
@@ -339,12 +345,12 @@ def mqtt_setup():
   mqtt_create_topic(0x428A, 'homeassistant/number/samsung_ehs_4052_dt_target/config', 'temperature', 'Samsung EHS FSV4052 dT Target', 'homeassistant/number/samsung_ehs_4052_dt_target/state', '°C', FSVWrite2MQTTHandler, 'homeassistant/number/samsung_ehs_4052_dt_target/set', {"min": 2, "max": 8, "step": 1})
   mqtt_create_topic(0x4093, 'homeassistant/number/samsung_ehs_2041_wl/config', None, 'Samsung EHS FSV2041 Water Law', 'homeassistant/number/samsung_ehs_2041_wl/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_2041_wl/set', {"min": 1, "max": 2, "step": 1})
   mqtt_create_topic(0x4127, 'homeassistant/number/samsung_ehs_2093_tempctrl/config', None, 'Samsung EHS FSV2093 Temp Control', 'homeassistant/number/samsung_ehs_2093_tempctrl/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_2093_tempctrl/set', {"min": 1, "max": 4, "step": 1})
-  mqtt_create_topic(0x4254, 'homeassistant/number/samsung_ehs_2011_wllow/config', 'temperature', 'Samsung EHS FSV2011 Water Law Min', 'homeassistant/number/samsung_ehs_2011_wllow/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2011_wllow/set', {"min": -20, "max": 5, "step": 1})
-  mqtt_create_topic(0x4255, 'homeassistant/number/samsung_ehs_2012_wlhigh/config', 'temperature', 'Samsung EHS FSV2012 Water Law Min', 'homeassistant/number/samsung_ehs_2012_wlhigh/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2012_wlhigh/set', {"min": 10, "max": 20, "step": 1})
-  mqtt_create_topic(0x4256, 'homeassistant/number/samsung_ehs_2021_z1max/config', 'temperature', 'Samsung EHS FSV2021 Water Out Zone1 Temp Max', 'homeassistant/number/samsung_ehs_2021_z1max/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2021_z1max/set', {"min": 17, "max": 75, "step": 1})
-  mqtt_create_topic(0x4257, 'homeassistant/number/samsung_ehs_2022_z1min/config', 'temperature', 'Samsung EHS FSV2022 Water Out Zone1 Temp Max', 'homeassistant/number/samsung_ehs_2022_z1min/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2022_z1min/set', {"min": 17, "max": 75, "step": 1})
-  mqtt_create_topic(0x4258, 'homeassistant/number/samsung_ehs_2031_z2max/config', 'temperature', 'Samsung EHS FSV2031 Water Out Zone2 Temp Max', 'homeassistant/number/samsung_ehs_2031_z2max/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2031_z2max/set', {"min": 17, "max": 75, "step": 1})
-  mqtt_create_topic(0x4259, 'homeassistant/number/samsung_ehs_2032_z2min/config', 'temperature', 'Samsung EHS FSV2032 Water Out Zone2 Temp Max', 'homeassistant/number/samsung_ehs_2032_z2min/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2032_z2min/set', {"min": 17, "max": 75, "step": 1})
+  mqtt_create_topic(0x4254, 'homeassistant/number/samsung_ehs_2011_wlmax/config', 'temperature', 'Samsung EHS FSV2011 Water Law Max', 'homeassistant/number/samsung_ehs_2011_wlmax/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2011_wlmax/set', {"min": -20, "max": 5, "step": 1})
+  mqtt_create_topic(0x4255, 'homeassistant/number/samsung_ehs_2012_wlmin/config', 'temperature', 'Samsung EHS FSV2012 Water Law Min', 'homeassistant/number/samsung_ehs_2012_wlmin/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2012_wlmin/set', {"min": 10, "max": 20, "step": 1})
+  mqtt_create_topic(0x4256, 'homeassistant/number/samsung_ehs_2021_wl1max/config', 'temperature', 'Samsung EHS FSV2021 Water Out WL1 Temp Max', 'homeassistant/number/samsung_ehs_2021_wl1max/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2021_wl1max/set', {"min": 17, "max": 75, "step": 1})
+  mqtt_create_topic(0x4257, 'homeassistant/number/samsung_ehs_2022_wl1min/config', 'temperature', 'Samsung EHS FSV2022 Water Out WL1 Temp Min', 'homeassistant/number/samsung_ehs_2022_wl1min/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2022_wl1min/set', {"min": 17, "max": 75, "step": 1})
+  mqtt_create_topic(0x4258, 'homeassistant/number/samsung_ehs_2031_wl2max/config', 'temperature', 'Samsung EHS FSV2031 Water Out WL2 Temp Max', 'homeassistant/number/samsung_ehs_2031_wl2max/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2031_wl2max/set', {"min": 17, "max": 75, "step": 1})
+  mqtt_create_topic(0x4259, 'homeassistant/number/samsung_ehs_2032_wl2min/config', 'temperature', 'Samsung EHS FSV2032 Water Out WL2 Temp Min', 'homeassistant/number/samsung_ehs_2032_wl2min/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2032_wl2min/set', {"min": 17, "max": 75, "step": 1})
 
 threading.Thread(name="publisher", target=publisher_thread).start()
 threading.Thread(name="mqtt_startup", target=mqtt_startup_thread).start()
