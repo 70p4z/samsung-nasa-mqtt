@@ -253,8 +253,10 @@ def publisher_thread():
 def mqtt_startup_thread():
   global mqtt_client
   def on_connect(client, userdata, flags, rc):
+    global nasa_state
     if rc==0:
       mqtt_setup()
+      nasa_state = {}
       pass
 
   mqtt_client = mqtt.Client('samsung_ehs',clean_session=True)
@@ -273,21 +275,25 @@ def mqtt_startup_thread():
     time.sleep(1) 
 
 def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state, unit_name, type_handler, topic_set, desc_base={}):
-  discovery_data=desc_base
-  discovery_data["name"]= name
+  config_content={}
+  for k in desc_base:
+    config_content[k] = desc_base[k]
+  config_content["name"]= name
   topic='notopic'
   if topic_set:
     topic=topic_set
-    discovery_data["command_topic"] = topic_set
+    config_content["command_topic"] = topic_set
   if topic_state:
     topic=topic_state
-    discovery_data["state_topic"] = topic_state
+    config_content["state_topic"] = topic_state
   if device_class:
-    discovery_data["device_class"] = device_class
+    config_content["device_class"] = device_class
   if unit_name:
-    discovery_data["unit_of_measurement"] = unit_name
+    config_content["unit_of_measurement"] = unit_name
+
+  log.info(topic + " = " + json.dumps(config_content))
   mqtt_client.publish(topic_config, 
-    payload=json.dumps(discovery_data), 
+    payload=json.dumps(config_content), 
     retain=True)
 
   nasa_name = nasa_message_name(nasa_msgnum)
@@ -338,7 +344,7 @@ def mqtt_setup():
   mqtt_create_topic(0x42D9, 'homeassistant/sensor/samsung_ehs_temp_outlet_zone2/config', 'temperature', 'Samsung EHS Temp Outlet Zone2', 'homeassistant/sensor/samsung_ehs_temp_outlet_zone2/state', '°C', IntDiv10MQTTHandler, None)
 
   mqtt_create_topic(0x4235, 'homeassistant/number/samsung_ehs_temp_dhw_target/config', 'temperature', 'Samsung EHS Temp DHW Target', 'homeassistant/number/samsung_ehs_temp_dhw_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_dhw_target/set', {"min": 35, "max": 70, "step": 1})
-  mqtt_create_topic(0x4065, 'homeassistant/switch/samsung_ehs_dhw_op/config', None, 'Samsung EHS DHW Operating', 'homeassistant/switch/samsung_ehs_dhw_op/state', '', DHWONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_dhw_op/set')
+  mqtt_create_topic(0x4065, 'homeassistant/switch/samsung_ehs_dhw/config', None, 'Samsung EHS DHW', 'homeassistant/switch/samsung_ehs_dhw/state', None, DHWONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_dhw/set')
   mqtt_create_topic(0x4237, 'homeassistant/sensor/samsung_ehs_temp_dhw/config', 'temperature', 'Samsung EHS Temp DHW Tank', 'homeassistant/sensor/samsung_ehs_temp_dhw/state', '°C', IntDiv10MQTTHandler, None)
 
   # FSV values
