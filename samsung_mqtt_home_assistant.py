@@ -358,6 +358,14 @@ def mqtt_setup():
   mqtt_create_topic(0x4258, 'homeassistant/number/samsung_ehs_2031_wl2max/config', 'temperature', 'Samsung EHS FSV2031 Water Out WL2 Temp Max', 'homeassistant/number/samsung_ehs_2031_wl2max/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2031_wl2max/set', {"min": 17, "max": 75, "step": 1})
   mqtt_create_topic(0x4259, 'homeassistant/number/samsung_ehs_2032_wl2min/config', 'temperature', 'Samsung EHS FSV2032 Water Out WL2 Temp Min', 'homeassistant/number/samsung_ehs_2032_wl2min/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2032_wl2min/set', {"min": 17, "max": 75, "step": 1})
 
+  #mixing valve settings
+  mqtt_create_topic(0x40C0, 'homeassistant/number/samsung_ehs_4041_V3V_enabled/config', None, 'Samsung EHS FSV4041 Mixing Valve Enabled', 'homeassistant/number/samsung_ehs_4041_V3V_enabled/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_4041_V3V_enabled/set', {"min": 0, "max": 2, "step": 1})
+  mqtt_create_topic(0x4286, 'homeassistant/number/samsung_ehs_4042_V3V_dt/config', None, 'Samsung EHS FSV4042 Mixing Valve dT Heating', 'homeassistant/number/samsung_ehs_4042_V3V_dt/state', None, FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_4042_V3V_dt/set', {"min": 5, "max": 15, "step": 1})
+  mqtt_create_topic(0x4287, 'homeassistant/number/samsung_ehs_4043_V3V_dt/config', None, 'Samsung EHS FSV4043 Mixing Valve dT Cooling', 'homeassistant/number/samsung_ehs_4043_V3V_dt/state', None, FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_4043_V3V_dt/set', {"min": 5, "max": 15, "step": 1})
+  mqtt_create_topic(0x40C1, 'homeassistant/number/samsung_ehs_4044_V3V_factor/config', None, 'Samsung EHS FSV4044 Mixing Valve Factor', 'homeassistant/number/samsung_ehs_4044_V3V_factor/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_4044_V3V_factor/set', {"min": 1, "max": 5, "step": 1})
+  mqtt_create_topic(0x4288, 'homeassistant/number/samsung_ehs_4045_V3V_interval/config', None, 'Samsung EHS FSV4045 Mixing Valve Interval (minute)', 'homeassistant/number/samsung_ehs_4045_V3V_interval/state', None, FSVWrite2MQTTHandler, 'homeassistant/number/samsung_ehs_4045_V3V_interval/set', {"min": 1, "max": 30, "step": 1})
+  mqtt_create_topic(0x4289, 'homeassistant/number/samsung_ehs_4046_V3V_runtime/config', None, 'Samsung EHS FSV4046 Mixing Valve Running Time (x10 seconds)', 'homeassistant/number/samsung_ehs_4046_V3V_runtime/state', None, FSVWrite2MQTTHandler, 'homeassistant/number/samsung_ehs_4046_V3V_runtime/set', {"min": 6, "max": 24, "step": 3})
+
 threading.Thread(name="publisher", target=publisher_thread).start()
 threading.Thread(name="mqtt_startup", target=mqtt_startup_thread).start()
 
