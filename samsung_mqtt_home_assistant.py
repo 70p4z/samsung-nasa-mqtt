@@ -33,6 +33,7 @@ args = parser.parse_args()
 
 # NASA state
 nasa_state = {}
+nasa_fsv_unlocked = False
 mqtt_client = None
 mqtt_published_vars = {}
 pgw = None
@@ -52,6 +53,20 @@ def nasa_update(msgnum, intval):
   except:
     traceback.print_exc()
   return False
+
+def nasa_fsv_writable():
+  global nasa_fsv_unlocked
+  return nasa_fsv_unlocked
+
+def nasa_fsv_unlock_mqtt_handler(client, userdata, msg):
+  global nasa_fsv_unlocked
+  mqttpayload = msg.payload.decode('utf-8')
+  if mqttpayload == "ON":
+    mqtt_client.publish('homeassistant/switch/samsung_ehs_fsv_unlock/state', 'ON')
+    nasa_fsv_unlocked=True
+  else:
+    mqtt_client.publish('homeassistant/switch/samsung_ehs_fsv_unlock/state', 'OFF')
+    nasa_fsv_unlocked=False
 
 class MQTTHandler():
   def __init__(self, mqtt_client, topic, nasa_msgnum):
@@ -74,6 +89,8 @@ class FSVWriteMQTTHandler(MQTTHandler):
 
 class FSVWrite1MQTTHandler(FSVWriteMQTTHandler):
   def action(self, client, userdata, msg):
+    if not nasa_fsv_writable():
+      return
     intval = int(float(msg.payload.decode('utf-8')))
     if nasa_update(self.nasa_msgnum, intval):
       global pgw
@@ -84,6 +101,8 @@ class FSVWrite1MQTTHandler(FSVWriteMQTTHandler):
 
 class FSVWrite2MQTTHandler(FSVWriteMQTTHandler):
   def action(self, client, userdata, msg):
+    if not nasa_fsv_writable():
+      return
     intval = int(float(msg.payload.decode('utf-8')))
     if nasa_update(self.nasa_msgnum, intval):
       global pgw
@@ -96,6 +115,8 @@ class FSVWrite2Div10MQTTHandler(FSVWriteMQTTHandler):
   def publish(self, valueInt):
     self.mqtt_client.publish(self.topic, valueInt/10.0)
   def action(self, client, userdata, msg):
+    if not nasa_fsv_writable():
+      return
     intval = int(float(msg.payload.decode('utf-8'))*10)
     if nasa_update(self.nasa_msgnum, intval):
       global pgw
@@ -346,6 +367,22 @@ def mqtt_setup():
   mqtt_create_topic(0x4235, 'homeassistant/number/samsung_ehs_temp_dhw_target/config', 'temperature', 'Samsung EHS Temp DHW Target', 'homeassistant/number/samsung_ehs_temp_dhw_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_dhw_target/set', {"min": 35, "max": 70, "step": 1})
   mqtt_create_topic(0x4065, 'homeassistant/switch/samsung_ehs_dhw/config', None, 'Samsung EHS DHW', 'homeassistant/switch/samsung_ehs_dhw/state', None, DHWONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_dhw/set')
   mqtt_create_topic(0x4237, 'homeassistant/sensor/samsung_ehs_temp_dhw/config', 'temperature', 'Samsung EHS Temp DHW Tank', 'homeassistant/sensor/samsung_ehs_temp_dhw/state', '°C', IntDiv10MQTTHandler, None)
+
+
+  # FSV unlock toggle to avoid unwanted finger modifications :)
+  topic_state = 'homeassistant/switch/samsung_ehs_fsv_unlock/state'
+  topic_set = 'homeassistant/switch/samsung_ehs_fsv_unlock/set'
+  mqtt_client.message_callback_add(topic_set, nasa_fsv_unlock_mqtt_handler)
+  mqtt_client.subscribe(topic_set)
+  mqtt_client.publish('homeassistant/switch/samsung_ehs_fsv_unlock/config', 
+    payload=json.dumps({'command_topic':topic_set,
+                        'state_topic':topic_state,
+                        'name':'Samsung EHS FSV Unlock'}), 
+    retain=True)
+  # relock by default
+  global nasa_fsv_unlocked
+  nasa_fsv_unlocked=False
+  mqtt_client.publish(topic_state, 'OFF')
 
   # FSV values
   mqtt_create_topic(0x428A, 'homeassistant/number/samsung_ehs_4052_dt_target/config', 'temperature', 'Samsung EHS FSV4052 dT Target', 'homeassistant/number/samsung_ehs_4052_dt_target/state', '°C', FSVWrite2MQTTHandler, 'homeassistant/number/samsung_ehs_4052_dt_target/set', {"min": 2, "max": 8, "step": 1})
