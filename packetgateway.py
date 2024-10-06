@@ -22,6 +22,14 @@ logging.basicConfig(format=LOGFORMAT)
 log = logging.getLogger("nasauart")
 log.setLevel(LOGLEVEL)
 
+def nasa_wrap(p):
+  # forge packet
+  # NOTE: crc excludes SF / TF and length
+  crc=binascii.crc_hqx(p, 0)
+  # NOTE: include length of CRC(2) and length of length field(2) in the 
+  #       total length, exclude SF/TF of total length 
+  return struct.pack(">BH", 0x32, len(p)+2+2) + p + struct.pack(">HB", crc, 0x34)
+
 class PacketGateway:
   #lenbytes: length of the length field prepended to every exchange (rx and tx)
   def __init__(self, host="127.0.0.1", port = 3333, rx_event=None):
@@ -148,12 +156,7 @@ class PacketGateway:
   # Method to send a packet to the HW gateway
   def packet_tx(self, p):
     with self.seriallock:
-      # forge packet
-      # NOTE: crc excludes SF / TF and length
-      crc=binascii.crc_hqx(p, 0)
-      # NOTE: include length of CRC(2) and length of length field(2) in the 
-      #       total length, exclude SF/TF of total length 
-      pp = struct.pack(">BH", 0x32, len(p)+2+2) + p + struct.pack(">HB", crc, 0x34)
+      pp = nasa_wrap(p)
       # dump display of sent data
       NasaPacketParser().parse_nasa(p)
       # prepare to wait for ack
@@ -263,6 +266,11 @@ class NasaPacketParser:
 
 # testing
 if __name__ == '__main__':
+
+
+  print(tools.bin2hex(nasa_wrap(tools.hex2bin('500000b0ffFFc011a50142da0000'))))
+  import sys
+  sys.exit(-1)
 
   def rx_event(p):
     log.debug("packet received "+ tools.bin2hex(p))
