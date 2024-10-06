@@ -846,7 +846,8 @@ def nasa_set_zone1_temperature(temp):
   dest="B0FFFF" # EHS
   # notifying of the value
   temp = int(temp*10)
-  return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"03406F00407601423A"+hex(0x10000+temp)[3:])
+  #return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"03406F00407601423A"+hex(0x10000+temp)[3:])
+  return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"02407601423A"+hex(0x10000+temp)[3:])
 
 # TYPE: notification
 # for Zone 2:
@@ -858,7 +859,8 @@ def nasa_set_zone2_temperature(temp):
   dest="B0FFFF" # EHS
   # notifying of the value
   temp = int(temp*10)
-  return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"03406F0041180142DA"+hex(0x10000+temp)[3:])
+  #return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"03406F0041180142DA"+hex(0x10000+temp)[3:])
+  return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"0241180142DA"+hex(0x10000+temp)[3:])
 
 # TYPE: request/ack
 dhw_power_modes = {
