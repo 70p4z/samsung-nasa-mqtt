@@ -313,6 +313,9 @@ def mqtt_startup_thread():
     if rc==0:
       mqtt_setup()
       nasa_state = {}
+      # default ambient values to avoid heating (0xC8 by default)
+      nasa_state[nasa_message_name(0x423A)] = 210
+      nasa_state[nasa_message_name(0x42DA)] = 210
       pass
 
   mqtt_client = mqtt.Client('samsung_ehs',clean_session=True)
