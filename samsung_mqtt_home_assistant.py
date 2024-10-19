@@ -40,6 +40,8 @@ mqtt_published_vars = {}
 pgw = None
 last_nasa_rx = time.time()
 nasa_pnp_state=0
+nasa_pnp_timeout=30
+nasa_pnp_startup_time=0
 
 def nasa_update(msgnum, intval):
   try:
@@ -268,12 +270,15 @@ def publisher_thread():
   global pgw
   global last_nasa_rx
   global nasa_pnp_state
+  global nasa_pnp_timeout
+  global nasa_pnp_startup_time
   # wait until IOs are setup
   time.sleep(10)
   while True:
     try:
-      if nasa_pnp_state < 1:
+      if nasa_pnp_state < 1 or (nasa_pnp_state < 3 and nasa_pnp_startup_time + nasa_pnp_timeout < time.time()):
         pgw.packet_tx(nasa_pnp_phase1_request_address())
+        nasa_pnp_startup_time=time.time()
         nasa_pnp_state=1
 
       pgw.packet_tx(nasa_notify_error(0))
