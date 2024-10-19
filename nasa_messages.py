@@ -770,6 +770,7 @@ nasa_message_numbers = [
 [0x8613,  "STR_OUT_REF_CHECK_INFO"],
 ]
 
+attributed_address="500000"
 def nasa_message_name(message_number):
   for ns in nasa_message_numbers:
     if ns[0] == message_number:
@@ -790,8 +791,11 @@ def getnonce():
   nonce%=256
   return nonce
 
-def nasa_set_u16(intMsgNumber, intvalueu16):
-  source="520000"
+def resetnonce():
+  global nonce
+  nonce=0
+
+def nasa_set_u16(intMsgNumber, intvalueu16, source="510000"):
   dest="B0FF20" # EHS
   # notifying of the value
   msgnum= hex(0x10000+intMsgNumber)[3:]
@@ -799,8 +803,7 @@ def nasa_set_u16(intMsgNumber, intvalueu16):
   #request
   return tools.hex2bin(source+dest+"C013"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
 
-def nasa_write_u8(intMsgNumber, intval):
-  source="520000"
+def nasa_write_u8(intMsgNumber, intval, source="510000"):
   dest="B0FF20" # EHS
   # notifying of the value
   msgnum= hex(0x10000+intMsgNumber)[-4:]
@@ -808,8 +811,7 @@ def nasa_write_u8(intMsgNumber, intval):
   #write
   return tools.hex2bin(source+dest+"C012"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
 
-def nasa_write_u16(intMsgNumber, intval):
-  source="520000"
+def nasa_write_u16(intMsgNumber, intval, source="510000"):
   dest="B0FF20" # EHS
   # notifying of the value
   msgnum= hex(0x10000+intMsgNumber)[-4:]
@@ -817,8 +819,7 @@ def nasa_write_u16(intMsgNumber, intval):
   #write
   return tools.hex2bin(source+dest+"C012"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
 
-def nasa_read_u8(intMsgNumber):
-  source="520000"
+def nasa_read_u8(intMsgNumber, source="510000"):
   dest="B0FF20" # EHS
   # notifying of the value
   msgnum= hex(0x10000+intMsgNumber)[-4:]
@@ -826,8 +827,7 @@ def nasa_read_u8(intMsgNumber):
   #write
   return tools.hex2bin(source+dest+"C011"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
 
-def nasa_read_u16(intMsgNumber):
-  source="520000"
+def nasa_read_u16(intMsgNumber, source="510000"):
   dest="B0FF20" # EHS
   # notifying of the value
   msgnum= hex(0x10000+intMsgNumber)[-4:]
@@ -841,8 +841,7 @@ def nasa_read_u16(intMsgNumber):
 # for Zone 1: 
 #   instead of setting 4203, 
 #   must set messages 406f <guess:thermostatentity:01> 4076 <tempsensorenable=01> 423a <temp=00fa>
-def nasa_set_zone1_temperature(temp):
-  source="510000"
+def nasa_set_zone1_temperature(temp, source="510000"):
   dest="B0FFFF" # EHS
   # notifying of the value
   temp = int(temp*10)
@@ -853,9 +852,7 @@ def nasa_set_zone1_temperature(temp):
 # for Zone 2:
 #   instead of setting 42d4, 
 #   must set messages 406f <guess:thermostatentity:02> 4118 <tempsensorenable=01> 42da <temp=00fa>
-def nasa_set_zone2_temperature(temp):
-  source="520000"
-  source="510000"
+def nasa_set_zone2_temperature(temp, source="510000"):
   dest="B0FFFF" # EHS
   # notifying of the value
   temp = int(temp*10)
@@ -869,8 +866,7 @@ dhw_power_modes = {
   "POWER": "02",
   "FORCED": "03",
 }
-def nasa_dhw_power(enabled, mode="STANDARD"):
-  source="510000"
+def nasa_dhw_power(enabled, mode="STANDARD", source="510000"):
   dest="B0FF20" # EHS
   # notifying of the value
   opmode="00"
@@ -890,8 +886,7 @@ zone_power_modes = {
 }
 # TYPE: request/ack
 #default mode is heating
-def nasa_zone_power(enabled=False, zone=1, target_temp=0, mode="HOT"):
-  source="510000"
+def nasa_zone_power(enabled=False, zone=1, target_temp=0, mode="HOT", source="510000"):
   dest="B0FF20" # EHS
   # prepare temp value
   target_temp = int(target_temp*10)
@@ -931,8 +926,96 @@ def nasa_zone_power(enabled=False, zone=1, target_temp=0, mode="HOT"):
     
   return tools.hex2bin(source+dest+"C013"+hex(0x100+getnonce())[3:]+hex(msgcount+0x100)[3:]+payload)
 
-def nasa_notify_error(is_master):
-  source="510000"
+def nasa_notify_error(is_master, source="510000"):
   dest="B0FF20" # EHS
   return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"0102020000")
 
+# captured MWR-WG00N 50ffffb0ffff c01400 05 200401 04180050c1d4 0217a2f4 041700510000 041900500000
+def nasa_pnp_phase1_request_address(source="50FFFF"):
+  dest="B0FFFF" # broadcast
+  resetnonce()
+  return tools.hex2bin(source
+                       +dest
+                       +"C01400"
+                       +"05"
+                       # PNP phase 1
+                       +"200401"
+                       # temporary reply to address
+                       +"04180050C1D4"
+                       # unique magic
+                       +"0217A2F4"
+                       # requested address
+                       +"041700510000"
+                       # base address??
+                       +"041900500000")
+
+# captured AE050CXYBEK 20000050c1d4c012490620040304180050c1d40217a2f4041700510000041900500000201201
+nonce_pnp_phase3=None
+def nasa_is_pnp_phase3_addressing(source, dest, nonce, dataSets):
+  pnpphase3present=False
+  expectedtempreplyaddr=False
+  expectedmagic=False
+  attribaddr=None
+  expectedstep=False
+  for ds in dataSets:
+    if ds[0] == 0x2004 and ds[4][0] == 3:
+      pnpphase3present=True
+    if ds[0] == 0x418 and ds[2] == "0050c1d4":
+      expectedtempreplyaddr=True
+    if ds[0] == 0x217 and ds[2] == "a2f4":
+      expectedmagic=True
+    if ds[0] == 0x417:
+      attribaddr=ds[2]
+    # ignored if ds[0] == 0x419:
+    # ??
+    if ds[0] == 0x2012 and ds[2] == "01":
+      expectedstep=True
+
+  if tools.bin2hex(source) == "200000" and pnpphase3present and expectedtempreplyaddr and expectedmagic and expectedstep:
+    global attributed_address 
+    attributed_address = attribaddr
+    global nonce_pnp_phase3
+    nonce_pnp_phase3 = hex(0x100+nonce)[-2:]
+    return True
+  return False
+
+# captured MWR-WG00N 510000200000c015490620040404180050c1d40217a2f4041700510000041900500000201204
+def nasa_pnp_phase4_ack(source="510000"):
+  dest="200000" # EHS
+  global nonce_pnp_phase3
+  return tools.hex2bin(source
+                       +dest
+                       +"C015"
+                       +nonce_pnp_phase3
+                       +"06"
+                       # PNP phase 4
+                       +"200404"
+                       # temporary reply to address
+                       +"04180050C1D4"
+                       # unique magic
+                       +"0217A2F4"
+                       # requested address
+                       +"041700510000"
+                       # base address??
+                       +"041900500000"
+                       # ??
+                       +"201204")
+
+
+# captured AE050CXYBEK 200000b0ffffc0144b01200400
+def nasa_is_pnp_end(source, dest, dataSets):
+  for ds in dataSets:
+    if tools.bin2hex(source) == "200000" and ds[0] == 0x2004 and ds[4][0] == 0:
+      return True
+  return False
+  
+# captured MWR-WG00N 510000b0ff50c01100014242ffff
+def nasa_poke(source="510000"):
+  dest="200000" # EHS
+  return tools.hex2bin(source
+                       +dest
+                       +"C011"
+                       +hex(0x100+getnonce())[3:]
+                       +"01"
+                       # PNP poke to detect other nodes
+                       +"4242FFFF")

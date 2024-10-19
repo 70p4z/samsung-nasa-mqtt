@@ -29,6 +29,7 @@ parser.add_argument('--serial-host', default="127.0.0.1",help="host to connect t
 parser.add_argument('--serial-port', default="7001", type=auto_int, help="port to connect the serial interface endpoint")
 parser.add_argument('--nasa-interval', default="30", type=auto_int, help="Interval in seconds to republish MQTT values set from the MQTT side (useful for temperature mainly)")
 parser.add_argument('--nasa-timeout', default="60", type=auto_int, help="Timeout before considering communication fault")
+parser.add_argument('--dump-only', action="store_true", help="Request to only dump packets from the NASA link on the console")
 args = parser.parse_args()
 
 # NASA state
@@ -37,7 +38,8 @@ nasa_fsv_unlocked = False
 mqtt_client = None
 mqtt_published_vars = {}
 pgw = None
-last_nasa_rx = 0
+last_nasa_rx = time.time()
+nasa_pnp_state=0
 
 def nasa_update(msgnum, intval):
   try:
@@ -198,19 +200,37 @@ class Zone2HOTSwitchMQTTHandler(ONOFFMQTTHandler):
     pgw.packet_tx(nasa_zone_power(enabled,2))
 
 #handler(source, dest, isInfo, protocolVersion, retryCounter, packetType, payloadType, packetNumber, dataSets)
-def rx_nasa_handler(*args, **kwargs):
+def rx_nasa_handler(*nargs, **kwargs):
   global mqtt_client
   global last_nasa_rx
+  global args
+  global pgw
+  global nasa_pnp_state
   last_nasa_rx = time.time()
   packetType = kwargs["packetType"]
   payloadType = kwargs["payloadType"]
+  packetNumber = kwargs["packetNumber"]
   dataSets = kwargs["dataSets"]
   source = kwargs["source"]
+  dest = kwargs["dest"]
   # ignore non normal packets
   if packetType != "normal":
     return
   # ignore read requests
   if payloadType != "notification" and payloadType != "write" and payloadType != "response":
+    return
+
+  if args.dump_only:
+    return
+
+  # check if PNP packet
+  if nasa_is_pnp_phase3_addressing(source, dest, packetNumber, dataSets):
+    nasa_pnp_state += 1
+    pgw.packet_tx(nasa_pnp_phase4_ack())
+    return
+  elif nasa_is_pnp_end(source, dest, dataSets):
+    pgw.packet_tx(nasa_poke())
+    nasa_pnp_state = 3
     return
 
   for ds in dataSets:
@@ -237,7 +257,7 @@ def rx_event_nasa(p):
   parser.parse_nasa(p, rx_nasa_handler)
 
 #todo: make that parametrized
-pgw = packetgateway.PacketGateway(args.serial_host, args.serial_port, rx_event=rx_event_nasa)
+pgw = packetgateway.PacketGateway(args.serial_host, args.serial_port, rx_event=rx_event_nasa, rxonly=args.dump_only)
 parser = packetgateway.NasaPacketParser()
 pgw.start()
 #ensure gateway is available and publish mqtt is possible when receving values
@@ -247,9 +267,15 @@ time.sleep(2)
 def publisher_thread():
   global pgw
   global last_nasa_rx
+  global nasa_pnp_state
+  # wait until IOs are setup
+  time.sleep(10)
   while True:
-    time.sleep(args.nasa_interval)
     try:
+      if nasa_pnp_state < 1:
+        pgw.packet_tx(nasa_pnp_phase1_request_address())
+        nasa_pnp_state=1
+
       pgw.packet_tx(nasa_notify_error(0))
       # publish zone 1 and 2 values toward nasa (periodic keep alive)
       zone1_temp_name = nasa_message_name(0x423A) # don't use value for the EHS, but from sensors instead
@@ -259,10 +285,12 @@ def publisher_thread():
       if zone2_temp_name in nasa_state:
         pgw.packet_tx(nasa_set_zone2_temperature(float(int(nasa_state[zone2_temp_name]))/10))
 
-      for name in mqtt_published_vars:
-        handler = mqtt_published_vars[name]
-        if not nasa_message_name(handler.nasa_msgnum) in nasa_state and isinstance(handler, FSVWriteMQTTHandler):
-          handler.initread()
+      # wait until pnp is done before requesting values
+      if nasa_pnp_state >= 3:
+        for name in mqtt_published_vars:
+          handler = mqtt_published_vars[name]
+          if not nasa_message_name(handler.nasa_msgnum) in nasa_state and isinstance(handler, FSVWriteMQTTHandler):
+            handler.initread()
 
     except:
       traceback.print_exc()
@@ -270,6 +298,8 @@ def publisher_thread():
     if last_nasa_rx + args.nasa_timeout < time.time():
       log.info("Communication lost!")
       os.kill(os.getpid(), signal.SIGTERM)
+
+    time.sleep(args.nasa_interval)
 
 def mqtt_startup_thread():
   global mqtt_client
@@ -327,8 +357,8 @@ def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state
     mqtt_client.message_callback_add(topic_set, handler.action)
     mqtt_client.subscribe(topic_set)
 
-  if isinstance(handler, FSVWriteMQTTHandler):
-    handler.initread()
+  # if isinstance(handler, FSVWriteMQTTHandler):
+  #   handler.initread()
   
   return handler
 
@@ -354,11 +384,12 @@ def mqtt_setup():
   mqtt_create_topic(0x402E, 'homeassistant/binary_sensor/samsung_ehs_defrosting_op/config', 'running', 'Samsung EHS Defrosting', 'homeassistant/binary_sensor/samsung_ehs_defrosting_op/state', None, ONOFFMQTTHandler, None)
   mqtt_create_topic(0x82FE, 'homeassistant/sensor/samsung_ehs_water_pressure/config', 'pressure', 'Samsung EHS Water Pressure', 'homeassistant/sensor/samsung_ehs_water_pressure/state', 'bar', IntDiv100MQTTHandler, None)
   
+  mqtt_create_topic(0x427F, 'homeassistant/sensor/samsung_ehs_temp_water_law_target/config', 'temperature', 'Samsung EHS Temp Water Law Target', 'homeassistant/sensor/samsung_ehs_temp_water_law_target/state', '°C', IntDiv10MQTTHandler, None)
+
   mqtt_create_topic(0x4000, 'homeassistant/switch/samsung_ehs_zone1/config', None, 'Samsung EHS Zone1', 'homeassistant/switch/samsung_ehs_zone1/state', None, Zone1HOTSwitchMQTTHandler, 'homeassistant/switch/samsung_ehs_zone1/set')
   mqtt_create_topic(0x4201, 'homeassistant/number/samsung_ehs_temp_zone1_target/config', 'temperature', 'Samsung EHS Temp Zone1 Target', 'homeassistant/number/samsung_ehs_temp_zone1_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1_target/set', {"min": 16, "max": 28, "step": 0.5})
   mqtt_create_topic(0x423A, 'homeassistant/number/samsung_ehs_temp_zone1/config', 'temperature', 'Samsung EHS Temp Zone1', 'homeassistant/number/samsung_ehs_temp_zone1/state', '°C', Zone1IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1/set')
   mqtt_create_topic(0x42D8, 'homeassistant/sensor/samsung_ehs_temp_outlet_zone1/config', 'temperature', 'Samsung EHS Temp Outlet Zone1', 'homeassistant/sensor/samsung_ehs_temp_outlet_zone1/state', '°C', IntDiv10MQTTHandler, None)
-  mqtt_create_topic(0x427F, 'homeassistant/sensor/samsung_ehs_temp_water_law_target/config', 'temperature', 'Samsung EHS Temp Water Law Target', 'homeassistant/sensor/samsung_ehs_temp_water_law_target/state', '°C', IntDiv10MQTTHandler, None)
   
   mqtt_create_topic(0x411e, 'homeassistant/switch/samsung_ehs_zone2/config', None, 'Samsung EHS Zone2', 'homeassistant/switch/samsung_ehs_zone2/state', None, Zone2HOTSwitchMQTTHandler, 'homeassistant/switch/samsung_ehs_zone2/set')
   mqtt_create_topic(0x42D6, 'homeassistant/number/samsung_ehs_temp_zone2_target/config', 'temperature', 'Samsung EHS Temp Zone2 Target', 'homeassistant/number/samsung_ehs_temp_zone2_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2_target/set', {"min": 16, "max": 28, "step": 0.5})
@@ -426,15 +457,17 @@ def mqtt_setup():
   """
 
 threading.Thread(name="publisher", target=publisher_thread).start()
-threading.Thread(name="mqtt_startup", target=mqtt_startup_thread).start()
+if not args.dump_only:
+  threading.Thread(name="mqtt_startup", target=mqtt_startup_thread).start()
 
 log.info("-----------------------------------------------------------------")
 log.info("Startup")
 
+
 """
 TODO:
 - detect loss of communication from the ASHP
-
+- test DHW temp after powercycle, to ensure the request is sufficient to persist the value in the Controller
 
 
 

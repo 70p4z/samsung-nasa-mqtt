@@ -32,7 +32,7 @@ def nasa_wrap(p):
 
 class PacketGateway:
   #lenbytes: length of the length field prepended to every exchange (rx and tx)
-  def __init__(self, host="127.0.0.1", port = 3333, rx_event=None):
+  def __init__(self, host="127.0.0.1", port = 3333, rx_event=None, rxonly=False):
     self.host = host
     self.port = port
     self.rx_event = rx_event
@@ -40,6 +40,7 @@ class PacketGateway:
     self.seriallock = loglock.LogLock("GatewayTxLock")
     self.gatewaysocket = None
     self.queue = queue.Queue()
+    self.rxonly = rxonly
 
   def connect(self, host=None, port=None):
     with self.seriallock:
@@ -157,6 +158,9 @@ class PacketGateway:
   def packet_tx(self, p):
     with self.seriallock:
       pp = nasa_wrap(p)
+      if self.rxonly:
+        log.debug('RX only, not emitting: '+tools.bin2hex(pp))
+        return
       # dump display of sent data
       NasaPacketParser().parse_nasa(p)
       # prepare to wait for ack
@@ -266,9 +270,10 @@ class NasaPacketParser:
 
 # testing
 if __name__ == '__main__':
-
-
+  #fdfdfdfdfd320012500000b0ffffc011a50142da0000d70e34
   print(tools.bin2hex(nasa_wrap(tools.hex2bin('500000b0ffFFc011a50142da0000'))))
+  print(tools.bin2hex(nasa_wrap(nasa_set_zone1_temperature(21.5))))
+
   import sys
   sys.exit(-1)
 
