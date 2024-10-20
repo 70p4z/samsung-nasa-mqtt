@@ -131,12 +131,12 @@ class PacketGateway:
 
               end = struct.unpack_from(">H", p[-3:])
               if p[-1] != 0x34:
-                raise BaseException("Invalid end of packet termination (expected 34)")
+                raise BaseException("Invalid end of packet termination (expected 34): " + tools.bin2hex(p))
               pdata=p[3:-3]
               log.debug("crc computed against "+tools.bin2hex(pdata))
               crc=binascii.crc_hqx(pdata, 0)
               if crc != end[0]:
-                raise BaseException("Invalid CRC (expected:"+hex(crc)+", observed:"+hex(end[0])+")")
+                raise BaseException("Invalid CRC (expected:"+hex(crc)+", observed:"+hex(end[0])+"): "+ tools.bin2hex(p))
 
               # create a queue event for the received packet
               self.seriallock.release()
