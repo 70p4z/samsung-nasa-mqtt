@@ -949,8 +949,8 @@ def nasa_notify_error(is_master, source=attributed_address):
   return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"0102020000")
 
 # captured MWR-WG00N 50ffffb0ffff c01400 05 200401 04180050c1d4 0217a2f4 041700510000 041900500000
-unique_address="50C1D4"
-unique_magic="A2F4"
+unique_address="50c1d4"
+unique_magic="a2f4"
 def nasa_pnp_phase1_request_address():
   global unique_address
   global unique_magic
