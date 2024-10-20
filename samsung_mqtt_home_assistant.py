@@ -40,8 +40,10 @@ mqtt_published_vars = {}
 pgw = None
 last_nasa_rx = time.time()
 nasa_pnp_state=0
-nasa_pnp_timeout=30
-nasa_pnp_startup_time=0
+NASA_PNP_TIMEOUT=30
+NASA_PNP_CHECK_INTERVAL=30
+NASA_PNP_RESPONSE_TIMEOUT=10
+nasa_pnp_time=0
 
 def nasa_update(msgnum, intval):
   try:
@@ -57,6 +59,13 @@ def nasa_update(msgnum, intval):
   except:
     traceback.print_exc()
   return False
+
+def nasa_reset_state():
+  global nasa_state
+  nasa_state = {}
+  # default ambient values to avoid heating (0xC8 by default)
+  nasa_state[nasa_message_name(0x423A)] = 210
+  nasa_state[nasa_message_name(0x42DA)] = 210
 
 def nasa_fsv_writable():
   global nasa_fsv_unlocked
@@ -241,6 +250,11 @@ def rx_nasa_handler(*nargs, **kwargs):
       if ( ds[1] == "NASA_IM_MASTER_NOTIFY" and ds[4][0] == 1) or (ds[1] == "NASA_IM_MASTER" and ds[4][0] == 1):
         nasa_state["master_address"] = source
         break
+
+      # detect PNP check's resposne
+      if nasa_pnp_state == 4 and payloadType == "response" and tools.bin2hex(source) == "200000" and ds[0] == 0x4229:
+        nasa_pnp_state = 3
+
       # hold the value indexed by its name, for easier update of mqtt stuff
       # (set the int raw value)
       nasa_state[ds[1]] = ds[4][0]
@@ -270,32 +284,45 @@ def publisher_thread():
   global pgw
   global last_nasa_rx
   global nasa_pnp_state
-  global nasa_pnp_timeout
-  global nasa_pnp_startup_time
+  global nasa_pnp_time
   # wait until IOs are setup
   time.sleep(10)
   while True:
     try:
-      if nasa_pnp_state < 1 or (nasa_pnp_state < 3 and nasa_pnp_startup_time + nasa_pnp_timeout < time.time()):
-        pgw.packet_tx(nasa_pnp_phase1_request_address())
-        nasa_pnp_startup_time=time.time()
-        nasa_pnp_state=1
-
-      pgw.packet_tx(nasa_notify_error(0))
-      # publish zone 1 and 2 values toward nasa (periodic keep alive)
-      zone1_temp_name = nasa_message_name(0x423A) # don't use value for the EHS, but from sensors instead
-      if zone1_temp_name in nasa_state:
-        pgw.packet_tx(nasa_set_zone1_temperature(float(int(nasa_state[zone1_temp_name]))/10))
-      zone2_temp_name = nasa_message_name(0x42DA) # don't use value for the EHS, but from sensors instead
-      if zone2_temp_name in nasa_state:
-        pgw.packet_tx(nasa_set_zone2_temperature(float(int(nasa_state[zone2_temp_name]))/10))
-
       # wait until pnp is done before requesting values
       if nasa_pnp_state >= 3:
+        pgw.packet_tx(nasa_notify_error(0))
+        # publish zone 1 and 2 values toward nasa (periodic keep alive)
+        zone1_temp_name = nasa_message_name(0x423A) # don't use value for the EHS, but from sensors instead
+        if zone1_temp_name in nasa_state:
+          pgw.packet_tx(nasa_set_zone1_temperature(float(int(nasa_state[zone1_temp_name]))/10))
+        zone2_temp_name = nasa_message_name(0x42DA) # don't use value for the EHS, but from sensors instead
+        if zone2_temp_name in nasa_state:
+          pgw.packet_tx(nasa_set_zone2_temperature(float(int(nasa_state[zone2_temp_name]))/10))
+
         for name in mqtt_published_vars:
           handler = mqtt_published_vars[name]
           if not nasa_message_name(handler.nasa_msgnum) in nasa_state and isinstance(handler, FSVWriteMQTTHandler):
             handler.initread()
+
+      if nasa_pnp_state < 1 or (nasa_pnp_state < 3 and nasa_pnp_time + NASA_PNP_TIMEOUT < time.time()):
+        pgw.packet_tx(nasa_pnp_phase1_request_address())
+        nasa_pnp_time=time.time()
+        nasa_pnp_state=1
+
+      # restart PNP
+      if nasa_pnp_state == 4 and nasa_pnp_time + NASA_PNP_RESPONSE_TIMEOUT < time.time():
+        pgw.packet_tx(nasa_pnp_phase1_request_address())
+        nasa_pnp_time=time.time()
+        nasa_pnp_state=1
+        nasa_reset_state()
+
+      # detect ASHP reboot and remote controller to execute PNP again
+      if nasa_pnp_state == 3 and nasa_pnp_time + NASA_PNP_CHECK_INTERVAL < time.time():
+        # request reading of MODEL INFORMATION (expect a reponse with it, not the regular notification)
+        pgw.packet_tx(nasa_read_u16(0x4229))
+        nasa_pnp_time=time.time()
+        nasa_pnp_state=4
 
     except:
       traceback.print_exc()
@@ -312,10 +339,7 @@ def mqtt_startup_thread():
     global nasa_state
     if rc==0:
       mqtt_setup()
-      nasa_state = {}
-      # default ambient values to avoid heating (0xC8 by default)
-      nasa_state[nasa_message_name(0x423A)] = 210
-      nasa_state[nasa_message_name(0x42DA)] = 210
+      nasa_reset_state()
       pass
 
   mqtt_client = mqtt.Client('samsung_ehs',clean_session=True)
