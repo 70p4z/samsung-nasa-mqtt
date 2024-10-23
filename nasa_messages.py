@@ -1,4 +1,5 @@
 import tools
+import os
 
 nasa_message_numbers = [
 [0x0000,  "NASA_IM_MASTER_NOTIFY"],
@@ -948,12 +949,45 @@ def nasa_notify_error(is_master, source=attributed_address):
   dest="B0FF20" # EHS
   return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"0102020000")
 
+#######################################
+#                                     #
+#     ▄▄▄▄▄▄    ▄▄▄   ▄▄  ▄▄▄▄▄▄      #
+#     ██▀▀▀▀█▄  ███   ██  ██▀▀▀▀█▄    #
+#     ██    ██  ██▀█  ██  ██    ██    #
+#     ██████▀   ██ ██ ██  ██████▀     #
+#     ██        ██  █▄██  ██          #
+#     ██        ██   ███  ██          #
+#     ▀▀        ▀▀   ▀▀▀  ▀▀          #
+#                                     #
+#                                     #
+#######################################
+
+def nasa_pnp_phase0_request_network_address():
+  source="500000"
+  dest="B0FFFF" # EHS
+  # notifying of the value
+  msgnum= hex(0x10000+0x210)[-4:]
+  val= hex(0x10000)[-4:]
+  #write
+  return tools.hex2bin(source+dest+"C011"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
+
+def nasa_is_pnp_phase0_network_address(source, dest, dataSets):
+  global nasa_pnp_unique_network_address
+  for ds in dataSets:
+    if ds[0] == 0x0210:
+      nasa_pnp_unique_network_address=ds[2]
+      return True
+  return False
+
 # captured MWR-WG00N 50ffffb0ffff c01400 05 200401 04180050c1d4 0217a2f4 041700510000 041900500000
-unique_address="50c1d4"
-unique_magic="a2f4"
-def nasa_pnp_phase1_request_address():
-  global unique_address
-  global unique_magic
+nasa_pnp_unique_address="50c1d4"
+nasa_pnp_unique_network_address="a2f4"
+def nasa_pnp_phase1_request_address(requested_address=attributed_address):
+  global nasa_pnp_unique_address
+  global nasa_pnp_unique_network_address
+
+  nasa_pnp_unique_address = "50" + tools.bin2hex(os.urandom(2))
+
   source="50FFFF"
   dest="B0FFFF" # broadcast
   resetnonce()
@@ -964,31 +998,31 @@ def nasa_pnp_phase1_request_address():
                        # PNP phase 1
                        +"200401"
                        # temporary reply to address
-                       +"041800"+unique_address
-                       # unique magic
-                       +"0217"+unique_magic
+                       +"041800"+nasa_pnp_unique_address
+                       # network address
+                       +"0217"+nasa_pnp_unique_network_address
                        # requested address
-                       +"041700510000"
+                       +"041700" + requested_address
                        # base address??
                        +"041900500000")
 
 # captured AE050CXYBEK 20000050c1d4c012490620040304180050c1d40217a2f4041700510000041900500000201201
 nonce_pnp_phase3=None
 def nasa_is_pnp_phase3_addressing(source, dest, nonce, dataSets):
-  global unique_address
-  global unique_magic
+  global nasa_pnp_unique_address
+  global nasa_pnp_unique_network_address
   pnpphase3present=False
   expectedtempreplyaddr=False
-  expectedmagic=False
+  expectednetaddr=False
   attribaddr=None
   expectedstep=False
   for ds in dataSets:
     if ds[0] == 0x2004 and ds[4][0] == 3:
       pnpphase3present=True
-    if ds[0] == 0x418 and ds[2] == "00"+unique_address:
+    if ds[0] == 0x418 and ds[2] == "00"+nasa_pnp_unique_address:
       expectedtempreplyaddr=True
-    if ds[0] == 0x217 and ds[2] == unique_magic:
-      expectedmagic=True
+    if ds[0] == 0x217 and ds[2] == nasa_pnp_unique_network_address:
+      expectednetaddr=True
     if ds[0] == 0x417:
       attribaddr=ds[2]
     # ignored if ds[0] == 0x419:
@@ -996,7 +1030,7 @@ def nasa_is_pnp_phase3_addressing(source, dest, nonce, dataSets):
     if ds[0] == 0x2012 and ds[2] == "01":
       expectedstep=True
 
-  if tools.bin2hex(source) == "200000" and pnpphase3present and expectedtempreplyaddr and expectedmagic and expectedstep:
+  if tools.bin2hex(source) == "200000" and pnpphase3present and expectedtempreplyaddr and expectednetaddr and expectedstep:
     global attributed_address 
     attributed_address = attribaddr
     global nonce_pnp_phase3
@@ -1006,8 +1040,8 @@ def nasa_is_pnp_phase3_addressing(source, dest, nonce, dataSets):
 
 # captured MWR-WG00N 510000200000c015490620040404180050c1d40217a2f4041700510000041900500000201204
 def nasa_pnp_phase4_ack(source=attributed_address):
-  global unique_address
-  global unique_magic
+  global nasa_pnp_unique_address
+  global nasa_pnp_unique_network_address
   dest="200000" # EHS
   global nonce_pnp_phase3
   return tools.hex2bin(source
@@ -1018,11 +1052,11 @@ def nasa_pnp_phase4_ack(source=attributed_address):
                        # PNP phase 4
                        +"200404"
                        # temporary reply to address
-                       +"041800"+unique_address
-                       # unique magic
-                       +"0217"+unique_magic
+                       +"041800"+nasa_pnp_unique_address
+                       # network address
+                       +"0217"+nasa_pnp_unique_network_address
                        # requested address
-                       +"041700510000"
+                       +"041700"+source
                        # base address??
                        +"041900500000"
                        # ??

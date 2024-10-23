@@ -30,6 +30,7 @@ parser.add_argument('--serial-port', default="7001", type=auto_int, help="port t
 parser.add_argument('--nasa-interval', default="30", type=auto_int, help="Interval in seconds to republish MQTT values set from the MQTT side (useful for temperature mainly)")
 parser.add_argument('--nasa-timeout', default="60", type=auto_int, help="Timeout before considering communication fault")
 parser.add_argument('--dump-only', action="store_true", help="Request to only dump packets from the NASA link on the console")
+parser.add_argument('--nasa-addr', default="510000", help="Configurable self address to use")
 args = parser.parse_args()
 
 # NASA state
@@ -42,8 +43,12 @@ last_nasa_rx = time.time()
 nasa_pnp_state=0
 NASA_PNP_TIMEOUT=30
 NASA_PNP_CHECK_INTERVAL=30
+NASA_PNP_CHECK_RETRIES=10 # avoid fault on PNP to avoid temp to be messed up and the ASHP to stall
 NASA_PNP_RESPONSE_TIMEOUT=10
 nasa_pnp_time=0
+nasa_pnp_check_retries=0
+nasa_pnp_ended=False
+nasa_pnp_check_requested=False
 
 def nasa_update(msgnum, intval):
   try:
@@ -216,7 +221,8 @@ def rx_nasa_handler(*nargs, **kwargs):
   global last_nasa_rx
   global args
   global pgw
-  global nasa_pnp_state
+  global nasa_pnp_check_requested
+  global nasa_pnp_ended
   last_nasa_rx = time.time()
   packetType = kwargs["packetType"]
   payloadType = kwargs["payloadType"]
@@ -227,6 +233,7 @@ def rx_nasa_handler(*nargs, **kwargs):
   # ignore non normal packets
   if packetType != "normal":
     return
+
   # ignore read requests
   if payloadType != "notification" and payloadType != "write" and payloadType != "response":
     return
@@ -235,13 +242,15 @@ def rx_nasa_handler(*nargs, **kwargs):
     return
 
   # check if PNP packet
-  if nasa_is_pnp_phase3_addressing(source, dest, packetNumber, dataSets):
-    nasa_pnp_state += 1
+  if not nasa_pnp_ended and nasa_is_pnp_phase0_network_address(source, dest, dataSets):
+    pgw.packet_tx(nasa_pnp_phase1_request_address(args.nasa_addr))
+  elif not nasa_pnp_ended and nasa_is_pnp_phase3_addressing(source, dest, packetNumber, dataSets):
     pgw.packet_tx(nasa_pnp_phase4_ack())
     return
   elif nasa_is_pnp_end(source, dest, dataSets):
     pgw.packet_tx(nasa_poke())
-    nasa_pnp_state = 3
+    nasa_pnp_ended = True
+    nasa_pnp_check_requested=False
     return
 
   for ds in dataSets:
@@ -252,8 +261,8 @@ def rx_nasa_handler(*nargs, **kwargs):
         break
 
       # detect PNP check's resposne
-      if nasa_pnp_state == 4 and payloadType == "response" and tools.bin2hex(source) == "200000" and ds[0] == 0x4229:
-        nasa_pnp_state = 3
+      if nasa_pnp_ended and nasa_pnp_check_requested and payloadType == "response" and tools.bin2hex(source) == "200000" and ds[0] == 0x4229:
+        nasa_pnp_check_requested=False
 
       # hold the value indexed by its name, for easier update of mqtt stuff
       # (set the int raw value)
@@ -285,12 +294,15 @@ def publisher_thread():
   global last_nasa_rx
   global nasa_pnp_state
   global nasa_pnp_time
+  global nasa_pnp_check_retries
+  global nasa_pnp_check_requested
+  global nasa_pnp_ended
   # wait until IOs are setup
   time.sleep(10)
   while True:
     try:
       # wait until pnp is done before requesting values
-      if nasa_pnp_state >= 3:
+      if nasa_pnp_state >= 4:
         pgw.packet_tx(nasa_notify_error(0))
         # publish zone 1 and 2 values toward nasa (periodic keep alive)
         zone1_temp_name = nasa_message_name(0x423A) # don't use value for the EHS, but from sensors instead
@@ -305,24 +317,31 @@ def publisher_thread():
           if not nasa_message_name(handler.nasa_msgnum) in nasa_state and isinstance(handler, FSVWriteMQTTHandler):
             handler.initread()
 
-      if nasa_pnp_state < 1 or (nasa_pnp_state < 3 and nasa_pnp_time + NASA_PNP_TIMEOUT < time.time()):
-        pgw.packet_tx(nasa_pnp_phase1_request_address())
+      # start PNP
+      if not nasa_pnp_ended or (not nasa_pnp_ended and nasa_pnp_time + NASA_PNP_TIMEOUT < time.time()):
+        pgw.packet_tx(nasa_pnp_phase0_request_network_address())
         nasa_pnp_time=time.time()
         nasa_pnp_state=1
-
-      # restart PNP
-      if nasa_pnp_state == 4 and nasa_pnp_time + NASA_PNP_RESPONSE_TIMEOUT < time.time():
-        pgw.packet_tx(nasa_pnp_phase1_request_address())
-        nasa_pnp_time=time.time()
-        nasa_pnp_state=1
-        nasa_reset_state()
-
+      # restart PNP?
+      if nasa_pnp_ended and nasa_pnp_check_requested and nasa_pnp_time + NASA_PNP_RESPONSE_TIMEOUT < time.time():
+        # retry check
+        if nasa_pnp_check_retries < NASA_PNP_CHECK_RETRIES:
+          pgw.packet_tx(nasa_read_u16(0x4229))
+          nasa_pnp_time=time.time()
+          nasa_pnp_check_requested=True
+        # consider PNP to be redone
+        else:
+          pgw.packet_tx(nasa_pnp_phase0_request_network_address())
+          nasa_pnp_time=time.time()
+          nasa_pnp_state=1
+          nasa_reset_state()
       # detect ASHP reboot and remote controller to execute PNP again
-      if nasa_pnp_state == 3 and nasa_pnp_time + NASA_PNP_CHECK_INTERVAL < time.time():
+      if nasa_pnp_ended and not nasa_pnp_check_requested and nasa_pnp_time + NASA_PNP_CHECK_INTERVAL < time.time():
         # request reading of MODEL INFORMATION (expect a reponse with it, not the regular notification)
         pgw.packet_tx(nasa_read_u16(0x4229))
         nasa_pnp_time=time.time()
-        nasa_pnp_state=4
+        nasa_pnp_check_retries=0
+        nasa_pnp_check_requested=True
 
     except:
       traceback.print_exc()
