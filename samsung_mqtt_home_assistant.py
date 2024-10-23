@@ -40,7 +40,6 @@ mqtt_client = None
 mqtt_published_vars = {}
 pgw = None
 last_nasa_rx = time.time()
-nasa_pnp_state=0
 NASA_PNP_TIMEOUT=30
 NASA_PNP_CHECK_INTERVAL=30
 NASA_PNP_CHECK_RETRIES=10 # avoid fault on PNP to avoid temp to be messed up and the ASHP to stall
@@ -292,7 +291,6 @@ time.sleep(2)
 def publisher_thread():
   global pgw
   global last_nasa_rx
-  global nasa_pnp_state
   global nasa_pnp_time
   global nasa_pnp_check_retries
   global nasa_pnp_check_requested
@@ -302,7 +300,7 @@ def publisher_thread():
   while True:
     try:
       # wait until pnp is done before requesting values
-      if nasa_pnp_state >= 4:
+      if nasa_pnp_ended:
         pgw.packet_tx(nasa_notify_error(0))
         # publish zone 1 and 2 values toward nasa (periodic keep alive)
         zone1_temp_name = nasa_message_name(0x423A) # don't use value for the EHS, but from sensors instead
@@ -318,10 +316,11 @@ def publisher_thread():
             handler.initread()
 
       # start PNP
-      if not nasa_pnp_ended or (not nasa_pnp_ended and nasa_pnp_time + NASA_PNP_TIMEOUT < time.time()):
+      if not nasa_pnp_ended or nasa_pnp_time + NASA_PNP_TIMEOUT < time.time():
         pgw.packet_tx(nasa_pnp_phase0_request_network_address())
         nasa_pnp_time=time.time()
-        nasa_pnp_state=1
+        nasa_pnp_ended=False
+        nasa_pnp_check_requested=False
       # restart PNP?
       if nasa_pnp_ended and nasa_pnp_check_requested and nasa_pnp_time + NASA_PNP_RESPONSE_TIMEOUT < time.time():
         # retry check
@@ -333,8 +332,9 @@ def publisher_thread():
         else:
           pgw.packet_tx(nasa_pnp_phase0_request_network_address())
           nasa_pnp_time=time.time()
-          nasa_pnp_state=1
           nasa_reset_state()
+          nasa_pnp_ended=False
+          nasa_pnp_check_requested=False
       # detect ASHP reboot and remote controller to execute PNP again
       if nasa_pnp_ended and not nasa_pnp_check_requested and nasa_pnp_time + NASA_PNP_CHECK_INTERVAL < time.time():
         # request reading of MODEL INFORMATION (expect a reponse with it, not the regular notification)
