@@ -316,7 +316,7 @@ def publisher_thread():
             handler.initread()
 
       # start PNP
-      if not nasa_pnp_ended or nasa_pnp_time + NASA_PNP_TIMEOUT < time.time():
+      if not nasa_pnp_ended or (not nasa_pnp_ended and nasa_pnp_time + NASA_PNP_TIMEOUT < time.time()):
         pgw.packet_tx(nasa_pnp_phase0_request_network_address())
         nasa_pnp_time=time.time()
         nasa_pnp_ended=False
