@@ -1,7 +1,6 @@
 import packetgateway
 import os
 import tools
-import logging
 import time
 import threading 
 import argparse
@@ -10,14 +9,21 @@ import paho.mqtt.client as mqtt
 import json
 import sys
 import signal
+from datetime import datetime, timedelta
 
 from nasa_messages import *
 
+import logging
+import logging.handlers
+LOGSTEM = "samsung_nasa"
 LOGLEVEL = os.environ.get('LOGLEVEL', 'INFO').upper()
 LOGFORMAT = '%(asctime)s %(levelname)s %(threadName)s %(message)s'
 logging.basicConfig(format=LOGFORMAT)
-log = logging.getLogger("samsung_nasa")
+log = logging.getLogger(LOGSTEM)
 log.setLevel(LOGLEVEL)
+# add log rotation with max size
+handler = logging.handlers.RotatingFileHandler("/tmp/"+LOGSTEM+".log", maxBytes=100000, backupCount=1)
+log.addHandler(handler)
 
 def auto_int(x):
   return int(x, 0)
@@ -31,6 +37,8 @@ parser.add_argument('--nasa-interval', default="30", type=auto_int, help="Interv
 parser.add_argument('--nasa-timeout', default="60", type=auto_int, help="Timeout before considering communication fault")
 parser.add_argument('--dump-only', action="store_true", help="Request to only dump packets from the NASA link on the console")
 parser.add_argument('--nasa-addr', default="510000", help="Configurable self address to use")
+parser.add_argument('--nasa-pnp', action="store_true", help="Perform Plug and Play when set")
+parser.add_argument('--nasa-default-zone-temp', help="Set given default temperature when MQTT restart or communication is lost or when PNP is timeout", type=auto_int)
 args = parser.parse_args()
 
 # NASA state
@@ -67,9 +75,12 @@ def nasa_update(msgnum, intval):
 def nasa_reset_state():
   global nasa_state
   nasa_state = {}
+  log.info("reset NASA state")
   # default ambient values to avoid heating (0xC8 by default)
-  nasa_state[nasa_message_name(0x423A)] = 210
-  nasa_state[nasa_message_name(0x42DA)] = 210
+  if args.nasa_default_zone_temp:
+    log.info("set default zone 1/2 current temperature to: " + str(args.nasa_default_zone_temp) )
+    nasa_state[nasa_message_name(0x423A)] = args.nasa_default_zone_temp*10
+    nasa_state[nasa_message_name(0x42DA)] = args.nasa_default_zone_temp*10
 
 def nasa_fsv_writable():
   global nasa_fsv_unlocked
@@ -240,17 +251,18 @@ def rx_nasa_handler(*nargs, **kwargs):
   if args.dump_only:
     return
 
-  # check if PNP packet
-  if not nasa_pnp_ended and nasa_is_pnp_phase0_network_address(source, dest, dataSets):
-    pgw.packet_tx(nasa_pnp_phase1_request_address(args.nasa_addr))
-  elif not nasa_pnp_ended and nasa_is_pnp_phase3_addressing(source, dest, packetNumber, dataSets):
-    pgw.packet_tx(nasa_pnp_phase4_ack())
-    return
-  elif nasa_is_pnp_end(source, dest, dataSets):
-    pgw.packet_tx(nasa_poke())
-    nasa_pnp_ended = True
-    nasa_pnp_check_requested=False
-    return
+  if args.nasa_pnp:
+    # check if PNP packet
+    if not nasa_pnp_ended and nasa_is_pnp_phase0_network_address(source, dest, dataSets):
+      pgw.packet_tx(nasa_pnp_phase1_request_address(args.nasa_addr))
+    elif not nasa_pnp_ended and nasa_is_pnp_phase3_addressing(source, dest, packetNumber, dataSets):
+      pgw.packet_tx(nasa_pnp_phase4_ack())
+      return
+    elif nasa_is_pnp_end(source, dest, dataSets):
+      pgw.packet_tx(nasa_poke())
+      nasa_pnp_ended = True
+      nasa_pnp_check_requested=False
+      return
 
   for ds in dataSets:
     try:
@@ -259,9 +271,11 @@ def rx_nasa_handler(*nargs, **kwargs):
         nasa_state["master_address"] = source
         break
 
-      # detect PNP check's resposne
-      if nasa_pnp_ended and nasa_pnp_check_requested and payloadType == "response" and tools.bin2hex(source) == "200000" and ds[0] == 0x4229:
-        nasa_pnp_check_requested=False
+
+      # detect PNP check's response
+      if args.nasa_pnp:
+        if nasa_pnp_ended and nasa_pnp_check_requested and payloadType == "response" and tools.bin2hex(source) == "200000" and ds[0] == 0x4229:
+          nasa_pnp_check_requested=False
 
       # hold the value indexed by its name, for easier update of mqtt stuff
       # (set the int raw value)
@@ -297,11 +311,16 @@ def publisher_thread():
   global nasa_pnp_ended
   # wait until IOs are setup
   time.sleep(10)
+
+  if not args.nasa_pnp:
+    nasa_set_attributed_address(args.nasa_addr)
+
   while True:
     try:
       # wait until pnp is done before requesting values
-      if nasa_pnp_ended:
+      if nasa_pnp_ended or not args.nasa_pnp:
         pgw.packet_tx(nasa_notify_error(0))
+        pgw.packet_tx(nasa_set_dhw_reference(0))
         # publish zone 1 and 2 values toward nasa (periodic keep alive)
         zone1_temp_name = nasa_message_name(0x423A) # don't use value for the EHS, but from sensors instead
         if zone1_temp_name in nasa_state:
@@ -315,33 +334,34 @@ def publisher_thread():
           if not nasa_message_name(handler.nasa_msgnum) in nasa_state and isinstance(handler, FSVWriteMQTTHandler):
             handler.initread()
 
-      # start PNP
-      if not nasa_pnp_ended or (not nasa_pnp_ended and nasa_pnp_time + NASA_PNP_TIMEOUT < time.time()):
-        pgw.packet_tx(nasa_pnp_phase0_request_network_address())
-        nasa_pnp_time=time.time()
-        nasa_pnp_ended=False
-        nasa_pnp_check_requested=False
-      # restart PNP?
-      if nasa_pnp_ended and nasa_pnp_check_requested and nasa_pnp_time + NASA_PNP_RESPONSE_TIMEOUT < time.time():
-        # retry check
-        if nasa_pnp_check_retries < NASA_PNP_CHECK_RETRIES:
-          pgw.packet_tx(nasa_read_u16(0x4229))
-          nasa_pnp_time=time.time()
-          nasa_pnp_check_requested=True
-        # consider PNP to be redone
-        else:
+      if args.nasa_pnp:
+        # start PNP
+        if not nasa_pnp_ended or (not nasa_pnp_ended and nasa_pnp_time + NASA_PNP_TIMEOUT < time.time()):
           pgw.packet_tx(nasa_pnp_phase0_request_network_address())
           nasa_pnp_time=time.time()
-          nasa_reset_state()
           nasa_pnp_ended=False
           nasa_pnp_check_requested=False
-      # detect ASHP reboot and remote controller to execute PNP again
-      if nasa_pnp_ended and not nasa_pnp_check_requested and nasa_pnp_time + NASA_PNP_CHECK_INTERVAL < time.time():
-        # request reading of MODEL INFORMATION (expect a reponse with it, not the regular notification)
-        pgw.packet_tx(nasa_read_u16(0x4229))
-        nasa_pnp_time=time.time()
-        nasa_pnp_check_retries=0
-        nasa_pnp_check_requested=True
+        # restart PNP?
+        if nasa_pnp_ended and nasa_pnp_check_requested and nasa_pnp_time + NASA_PNP_RESPONSE_TIMEOUT < time.time():
+          # retry check
+          if nasa_pnp_check_retries < NASA_PNP_CHECK_RETRIES:
+            pgw.packet_tx(nasa_read_u16(0x4229))
+            nasa_pnp_time=time.time()
+            nasa_pnp_check_requested=True
+          # consider PNP to be redone
+          else:
+            pgw.packet_tx(nasa_pnp_phase0_request_network_address())
+            nasa_pnp_time=time.time()
+            nasa_reset_state()
+            nasa_pnp_ended=False
+            nasa_pnp_check_requested=False
+        # detect ASHP reboot and remote controller to execute PNP again
+        if nasa_pnp_ended and not nasa_pnp_check_requested and nasa_pnp_time + NASA_PNP_CHECK_INTERVAL < time.time():
+          # request reading of MODEL INFORMATION (expect a reponse with it, not the regular notification)
+          pgw.packet_tx(nasa_read_u16(0x4229))
+          nasa_pnp_time=time.time()
+          nasa_pnp_check_retries=0
+          nasa_pnp_check_requested=True
 
     except:
       traceback.print_exc()
@@ -451,6 +471,10 @@ def mqtt_setup():
   mqtt_create_topic(0x4065, 'homeassistant/switch/samsung_ehs_dhw/config', None, 'Samsung EHS DHW', 'homeassistant/switch/samsung_ehs_dhw/state', None, DHWONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_dhw/set')
   mqtt_create_topic(0x4237, 'homeassistant/sensor/samsung_ehs_temp_dhw/config', 'temperature', 'Samsung EHS Temp DHW Tank', 'homeassistant/sensor/samsung_ehs_temp_dhw/state', '°C', IntDiv10MQTTHandler, None)
 
+  # notify of script start
+  topic_state = 'homeassistant/sensor/samsung_ehs_mqtt_bridge/date'
+  mqtt_client.publish('homeassistant/sensor/samsung_ehs_mqtt_bridge/config', payload=json.dumps({'state_topic':topic_state,'name':'Samsung EHS Bridge restart date'}), retain=True)
+  mqtt_client.publish('homeassistant/sensor/samsung_ehs_mqtt_bridge/date', payload=datetime.strftime(datetime.now(), "%Y%m%d%H%M%S"), retain=True)
 
   # FSV unlock toggle to avoid unwanted finger modifications :)
   topic_state = 'homeassistant/switch/samsung_ehs_fsv_unlock/state'
