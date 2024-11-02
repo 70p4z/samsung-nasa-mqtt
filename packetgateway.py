@@ -16,11 +16,7 @@ import loglock
 import binascii
 from nasa_messages import *
 
-LOGLEVEL = os.environ.get('LOGLEVEL', 'INFO').upper()
-LOGFORMAT = '%(asctime)s %(levelname)s %(threadName)s %(message)s'
-logging.basicConfig(format=LOGFORMAT)
-log = logging.getLogger("nasauart")
-log.setLevel(LOGLEVEL)
+from logger import log
 
 def nasa_wrap(p):
   # forge packet
@@ -121,6 +117,7 @@ class PacketGateway:
             p = self.rx[:1 + fields[1] + 1]
 
             if len(p) != 1+fields[1]+1:
+              log.error("Invalid encoded length: " + tools.bin2hex(p))
               raise BaseException("Invalid encoded length")
 
             haslock=False
@@ -131,11 +128,13 @@ class PacketGateway:
 
               end = struct.unpack_from(">H", p[-3:])
               if p[-1] != 0x34:
+                log.error("Invalid end of packet termination (expected 34): " + tools.bin2hex(p))
                 raise BaseException("Invalid end of packet termination (expected 34): " + tools.bin2hex(p))
               pdata=p[3:-3]
               log.debug("crc computed against "+tools.bin2hex(pdata))
               crc=binascii.crc_hqx(pdata, 0)
               if crc != end[0]:
+                log.error("Invalid CRC (expected:"+hex(crc)+", observed:"+hex(end[0])+"): "+ tools.bin2hex(p))
                 raise BaseException("Invalid CRC (expected:"+hex(crc)+", observed:"+hex(end[0])+"): "+ tools.bin2hex(p))
 
               # create a queue event for the received packet

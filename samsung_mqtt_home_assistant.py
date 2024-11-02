@@ -13,17 +13,7 @@ from datetime import datetime, timedelta
 
 from nasa_messages import *
 
-import logging
-import logging.handlers
-LOGSTEM = "samsung_nasa"
-LOGLEVEL = os.environ.get('LOGLEVEL', 'INFO').upper()
-LOGFORMAT = '%(asctime)s %(levelname)s %(threadName)s %(message)s'
-logging.basicConfig(format=LOGFORMAT)
-log = logging.getLogger(LOGSTEM)
-log.setLevel(LOGLEVEL)
-# add log rotation with max size
-handler = logging.handlers.RotatingFileHandler("/tmp/"+LOGSTEM+".log", maxBytes=100000, backupCount=1)
-log.addHandler(handler)
+from logger import log
 
 def auto_int(x):
   return int(x, 0)
