@@ -163,6 +163,7 @@ class IntDiv10MQTTHandler(MQTTHandler):
       global pgw
       pgw.packet_tx(nasa_set_u16(self.nasa_msgnum, intval))
 
+
 class IntDiv100MQTTHandler(MQTTHandler):
   def publish(self, valueInt):
     self.mqtt_client.publish(self.topic, valueInt/100.0)
@@ -242,10 +243,17 @@ def rx_nasa_handler(*nargs, **kwargs):
   dest = kwargs["dest"]
   # ignore non normal packets
   if packetType != "normal":
+    log.info("ignoring type of packet")
+    return
+
+  # only interpret values from the heatpump, ignore other controllers (especially for the E653 error on overriden zone)
+  if source[0]&0xF0 != 0x20:
+    log.info("ignoring packet from that source")
     return
 
   # ignore read requests
   if payloadType != "notification" and payloadType != "write" and payloadType != "response":
+    log.info("ignoring packet instruction")
     return
 
   if args.dump_only:
