@@ -277,8 +277,6 @@ def rx_nasa_handler(*nargs, **kwargs):
       # we can tag the master's address
       if ( ds[1] == "NASA_IM_MASTER_NOTIFY" and ds[4][0] == 1) or (ds[1] == "NASA_IM_MASTER" and ds[4][0] == 1):
         nasa_state["master_address"] = source
-        break
-
 
       # detect PNP check's response
       if args.nasa_pnp:
