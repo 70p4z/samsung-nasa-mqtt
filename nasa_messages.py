@@ -801,6 +801,17 @@ def resetnonce():
   global nonce
   nonce=0
 
+def nasa_set_u8(intMsgNumber, intvalueu8, source=None):
+  if not source:
+    global attributed_address
+    source = attributed_address
+  dest="B0FF20" # EHS
+  # notifying of the value
+  msgnum= hex(0x10000+intMsgNumber)[3:]
+  val= hex(0x100+intvalueu8)[3:]
+  #request
+  return tools.hex2bin(source+dest+"C013"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
+
 def nasa_set_u16(intMsgNumber, intvalueu16, source=None):
   if not source:
     global attributed_address

@@ -143,6 +143,16 @@ class FSVWrite2Div10MQTTHandler(FSVWriteMQTTHandler):
     global pgw
     pgw.packet_tx(nasa_read_u16(self.nasa_msgnum))
 
+class IntMQTTHandler(MQTTHandler):
+  def publish(self, valueInt):
+    self.mqtt_client.publish(self.topic, valueInt)
+
+  def action(self, client, userdata, msg):
+    intval = int(float(msg.payload.decode('utf-8')))
+    if nasa_update(self.nasa_msgnum, intval):
+      global pgw
+      pgw.packet_tx(nasa_set_u8(self.nasa_msgnum, intval))
+
 class IntDiv10MQTTHandler(MQTTHandler):
   def publish(self, valueInt):
     self.mqtt_client.publish(self.topic, valueInt/10.0)
@@ -434,6 +444,8 @@ def mqtt_setup():
     payload=json.dumps({"name": "Samsung EHS Operating COP", 
                         "state_topic": 'homeassistant/sensor/samsung_ehs_current_input_power/state_cop'}), 
     retain=True)
+  # minimum flow set to 10% to avoid LWT raising exponentially
+  mqtt_create_topic(0x40C4, 'homeassistant/number/samsung_ehs_inv_pump_pwm/config', 'power_factor', 'Samsung EHS Inverter Pump PWM', 'homeassistant/number/samsung_ehs_inv_pump_pwm/state', '%', IntMQTTHandler, 'homeassistant/number/samsung_ehs_inv_pump_pwm/set', {"min": 10, "max": 100, "step": 1})
 
   mqtt_create_topic(0x4236, 'homeassistant/sensor/samsung_ehs_temp_water_in/config', 'temperature', 'Samsung EHS RWT Water In', 'homeassistant/sensor/samsung_ehs_temp_water_in/state', '°C', IntDiv10MQTTHandler, None)
   mqtt_create_topic(0x4238, 'homeassistant/sensor/samsung_ehs_temp_water_out/config', 'temperature', 'Samsung EHS LWT Water Out', 'homeassistant/sensor/samsung_ehs_temp_water_out/state', '°C', IntDiv10MQTTHandler, None)
@@ -482,7 +494,9 @@ def mqtt_setup():
   mqtt_client.publish(topic_state, 'OFF')
 
   # FSV values
+  mqtt_create_topic(0x40C2, 'homeassistant/number/samsung_ehs_4051_inv_pump_ctrl/config', None, 'Samsung EHS FSV4051 Inverter Pump Control', 'homeassistant/number/samsung_ehs_4051_inv_pump_ctrl/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_4051_inv_pump_ctrl/set', {"min": 0, "max": 2, "step": 1})
   mqtt_create_topic(0x428A, 'homeassistant/number/samsung_ehs_4052_dt_target/config', 'temperature', 'Samsung EHS FSV4052 dT Target', 'homeassistant/number/samsung_ehs_4052_dt_target/state', '°C', FSVWrite2MQTTHandler, 'homeassistant/number/samsung_ehs_4052_dt_target/set', {"min": 2, "max": 8, "step": 1})
+  mqtt_create_topic(0x40C3, 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/config', None, 'Samsung EHS FSV4053 Inverter Pump Factor', 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/set', {"min": 1, "max": 3, "step": 1})
   mqtt_create_topic(0x4097, 'homeassistant/number/samsung_ehs_3011_dhw_ctrl/config', None, 'Samsung EHS FSV3011 DHW Control', 'homeassistant/number/samsung_ehs_3011_dhw_ctrl/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_3011_dhw_ctrl/set', {"min": 0, "max": 2, "step": 1})
   mqtt_create_topic(0x4261, 'homeassistant/number/samsung_ehs_3022_dhw_stop_temp/config', None, 'Samsung EHS FSV3022 DHW Stop Temp', 'homeassistant/number/samsung_ehs_3022_dhw_stop_temp/state', None, FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_3022_dhw_stop_temp/set', {"min": 0, "max": 10, "step": 1})
   mqtt_create_topic(0x4262, 'homeassistant/number/samsung_ehs_3023_dhw_start_temp/config', None, 'Samsung EHS FSV3023 DHW Start Temp', 'homeassistant/number/samsung_ehs_3023_dhw_start_temp/state', None, FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_3023_dhw_start_temp/set', {"min": 0, "max": 30, "step": 1})
