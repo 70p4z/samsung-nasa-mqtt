@@ -143,7 +143,7 @@ class FSVWrite2Div10MQTTHandler(FSVWriteMQTTHandler):
     global pgw
     pgw.packet_tx(nasa_read_u16(self.nasa_msgnum))
 
-class IntMQTTHandler(MQTTHandler):
+class Uint8MQTTHandler(MQTTHandler):
   def publish(self, valueInt):
     self.mqtt_client.publish(self.topic, valueInt)
 
@@ -162,7 +162,6 @@ class IntDiv10MQTTHandler(MQTTHandler):
     if nasa_update(self.nasa_msgnum, intval):
       global pgw
       pgw.packet_tx(nasa_set_u16(self.nasa_msgnum, intval))
-
 
 class IntDiv100MQTTHandler(MQTTHandler):
   def publish(self, valueInt):
@@ -433,14 +432,12 @@ def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state
   if topic_set:
     mqtt_client.message_callback_add(topic_set, handler.action)
     mqtt_client.subscribe(topic_set)
-
-  # if isinstance(handler, FSVWriteMQTTHandler):
-  #   handler.initread()
   
   return handler
 
 def mqtt_setup():
   mqtt_create_topic(0x202, 'homeassistant/sensor/samsung_ehs_error_code_1/config', None, 'Samsung EHS Error Code 1', 'homeassistant/sensor/samsung_ehs_error_code_1/state', None, MQTTHandler, None)
+
   mqtt_create_topic(0x4427, 'homeassistant/sensor/samsung_ehs_total_output_power/config', 'energy', 'Samsung EHS Total Output Power', 'homeassistant/sensor/samsung_ehs_total_output_power/state', 'Wh', MQTTHandler, None)
   mqtt_create_topic(0x8414, 'homeassistant/sensor/samsung_ehs_total_input_power/config', 'energy', 'Samsung EHS Total Input Power', 'homeassistant/sensor/samsung_ehs_total_input_power/state', 'Wh', MQTTHandler, None)
   
@@ -452,7 +449,7 @@ def mqtt_setup():
                         "state_topic": 'homeassistant/sensor/samsung_ehs_current_input_power/state_cop'}), 
     retain=True)
   # minimum flow set to 10% to avoid LWT raising exponentially
-  mqtt_create_topic(0x40C4, 'homeassistant/number/samsung_ehs_inv_pump_pwm/config', 'power_factor', 'Samsung EHS Inverter Pump PWM', 'homeassistant/number/samsung_ehs_inv_pump_pwm/state', '%', IntMQTTHandler, 'homeassistant/number/samsung_ehs_inv_pump_pwm/set', {"min": 10, "max": 100, "step": 1})
+  mqtt_create_topic(0x40C4, 'homeassistant/number/samsung_ehs_inv_pump_pwm/config', 'power_factor', 'Samsung EHS Inverter Pump PWM', 'homeassistant/number/samsung_ehs_inv_pump_pwm/state', '%', Uint8MQTTHandler, 'homeassistant/number/samsung_ehs_inv_pump_pwm/set', {"min": 10, "max": 100, "step": 1})
 
   mqtt_create_topic(0x4236, 'homeassistant/sensor/samsung_ehs_temp_water_in/config', 'temperature', 'Samsung EHS RWT Water In', 'homeassistant/sensor/samsung_ehs_temp_water_in/state', '°C', IntDiv10MQTTHandler, None)
   mqtt_create_topic(0x4238, 'homeassistant/sensor/samsung_ehs_temp_water_out/config', 'temperature', 'Samsung EHS LWT Water Out', 'homeassistant/sensor/samsung_ehs_temp_water_out/state', '°C', IntDiv10MQTTHandler, None)
