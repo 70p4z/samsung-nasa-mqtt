@@ -769,6 +769,9 @@ nasa_message_numbers = [
 [0x860D,  "NASA_OUTDOOR_MODELINFORMATION"],
 [0x860F,  "NASA_OUTDOOR_SETUP_INFO"],
 [0x8613,  "STR_OUT_REF_CHECK_INFO"],
+[0x4090,  "RE_1"],
+[0x40b2,  "RE_2"],
+[0x408b,  "NASA_DHW_3WAY_DIR"],
 ]
 
 attributed_address="500000"
