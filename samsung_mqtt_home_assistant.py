@@ -168,7 +168,7 @@ class IntDiv10MQTTHandler(MQTTHandler):
     if nasa_update(self.nasa_msgnum, intval):
       global pgw
       pgw.packet_tx(nasa_set_u16(self.nasa_msgnum, intval))
-
+      
 class IntDiv100MQTTHandler(MQTTHandler):
   def publish(self, valueInt):
     self.mqtt_client.publish(self.topic, valueInt/100.0)
@@ -195,7 +195,12 @@ class COPMQTTHandler(MQTTHandler):
     self.mqtt_client.publish(self.topic, valueInt)
     # compute COP and publish the value as well
     # round at 2 digits
-    self.mqtt_client.publish(self.topic + "_cop", int(nasa_state[nasa_message_name(0x4426)]*100 / valueInt)/100)
+    try:
+      if valueInt == 0:
+        valueInt = 14
+      self.mqtt_client.publish(self.topic + "_cop", int(nasa_state[nasa_message_name(0x4426)]*100 / valueInt)/100)
+    except:
+      pass
 
 class Zone1IntDiv10MQTTHandler(IntDiv10MQTTHandler):
   def action(self, client, userdata, msg):
@@ -510,6 +515,7 @@ def mqtt_setup():
   mqtt_create_topic(0x40C3, 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/config', None, 'Samsung EHS FSV4053 Inverter Pump Factor', 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/set', {"min": 1, "max": 3, "step": 1})
   # DHW
   mqtt_create_topic(0x4097, 'homeassistant/number/samsung_ehs_3011_dhw_ctrl/config', None, 'Samsung EHS FSV3011 DHW Control', 'homeassistant/number/samsung_ehs_3011_dhw_ctrl/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_3011_dhw_ctrl/set', {"min": 0, "max": 2, "step": 1})
+  mqtt_create_topic(0x4260, 'homeassistant/number/samsung_ehs_3021_dhw_max_temp/config', None, 'Samsung EHS FSV3021 DHW Max Temp', 'homeassistant/number/samsung_ehs_3021_dhw_max_temp/state', None, FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_3021_dhw_max_temp/set', {"min": 0, "max": 70, "step": 1})
   mqtt_create_topic(0x4261, 'homeassistant/number/samsung_ehs_3022_dhw_stop_temp/config', None, 'Samsung EHS FSV3022 DHW Stop Temp', 'homeassistant/number/samsung_ehs_3022_dhw_stop_temp/state', None, FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_3022_dhw_stop_temp/set', {"min": 0, "max": 10, "step": 1})
   mqtt_create_topic(0x4262, 'homeassistant/number/samsung_ehs_3023_dhw_start_temp/config', None, 'Samsung EHS FSV3023 DHW Start Temp', 'homeassistant/number/samsung_ehs_3023_dhw_start_temp/state', None, FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_3023_dhw_start_temp/set', {"min": 0, "max": 30, "step": 1})
   mqtt_create_topic(0x4263, 'homeassistant/number/samsung_ehs_3024_dhw_sh_min_sh_time/config', None, 'Samsung EHS FSV3024 DHW+SH Min Heating Duration', 'homeassistant/number/samsung_ehs_3024_dhw_sh_min_time/state', None, FSVWrite2MQTTHandler, 'homeassistant/number/samsung_ehs_3024_dhw_sh_min_time/set', {"min": 1, "max": 20, "step": 1})

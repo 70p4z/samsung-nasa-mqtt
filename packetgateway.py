@@ -154,10 +154,10 @@ class PacketGateway:
 
 
   # Method to send a packet to the HW gateway
-  def packet_tx(self, p):
+  def packet_tx(self, p, force=False):
     with self.seriallock:
       pp = nasa_wrap(p)
-      if self.rxonly:
+      if self.rxonly and not force:
         log.debug('RX only, not emitting: '+tools.bin2hex(pp))
         return
       # dump display of sent data

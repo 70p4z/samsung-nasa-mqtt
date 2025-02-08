@@ -875,7 +875,7 @@ def nasa_read_u16(intMsgNumber, source=None):
 # zone current temperature.
 # for Zone 1: 
 #   instead of setting 4203, 
-#   must set messages 406f <guess:thermostatentity:01> 4076 <tempsensorenable=01> 423a <temp=00fa>
+#   must set messages 4076 <tempsensorenable=01> 423a <temp=00fa>
 def nasa_set_zone1_temperature(temp, source=None):
   if not source:
     global attributed_address
@@ -895,7 +895,7 @@ def nasa_set_zone1_temperature(temp, source=None):
 # TYPE: notification
 # for Zone 2:
 #   instead of setting 42d4, 
-#   must set messages 406f <guess:thermostatentity:02> 4118 <tempsensorenable=01> 42da <temp=00fa>
+#   must set messages 4118 <tempsensorenable=01> 42da <temp=00fa>
 def nasa_set_zone2_temperature(temp, source=None):
   if not source:
     global attributed_address
