@@ -327,6 +327,7 @@ def publisher_thread():
   global nasa_pnp_ended
   # wait until IOs are setup
   time.sleep(10)
+  nasa_last_publish = 0
 
   if not args.nasa_pnp:
     nasa_set_attributed_address(args.nasa_addr)
@@ -334,22 +335,23 @@ def publisher_thread():
   while True:
     try:
       # wait until pnp is done before requesting values
-      if nasa_pnp_ended or not args.nasa_pnp:
-        pgw.packet_tx(nasa_notify_error(0))
-        pgw.packet_tx(nasa_set_dhw_reference(0))
-        # publish zone 1 and 2 values toward nasa (periodic keep alive)
-        zone1_temp_name = nasa_message_name(0x423A) # don't use value for the EHS, but from sensors instead
-        if zone1_temp_name in nasa_state:
-          pgw.packet_tx(nasa_set_zone1_temperature(float(int(nasa_state[zone1_temp_name]))/10))
-        zone2_temp_name = nasa_message_name(0x42DA) # don't use value for the EHS, but from sensors instead
-        if zone2_temp_name in nasa_state:
-          pgw.packet_tx(nasa_set_zone2_temperature(float(int(nasa_state[zone2_temp_name]))/10))
+      if nasa_last_publish + args.nasa_interval < time.time():
+        if nasa_pnp_ended or not args.nasa_pnp:
+          nasa_last_publish = time.time()
+          pgw.packet_tx(nasa_notify_error(0))
+          pgw.packet_tx(nasa_set_dhw_reference(0))
+          # publish zone 1 and 2 values toward nasa (periodic keep alive)
+          zone1_temp_name = nasa_message_name(0x423A) # don't use value for the EHS, but from sensors instead
+          if zone1_temp_name in nasa_state:
+            pgw.packet_tx(nasa_set_zone1_temperature(float(int(nasa_state[zone1_temp_name]))/10))
+          zone2_temp_name = nasa_message_name(0x42DA) # don't use value for the EHS, but from sensors instead
+          if zone2_temp_name in nasa_state:
+            pgw.packet_tx(nasa_set_zone2_temperature(float(int(nasa_state[zone2_temp_name]))/10))
 
-        for name in mqtt_published_vars:
-          handler = mqtt_published_vars[name]
-          if not nasa_message_name(handler.nasa_msgnum) in nasa_state and isinstance(handler, FSVWriteMQTTHandler):
-            handler.initread()
-
+          for name in mqtt_published_vars:
+            handler = mqtt_published_vars[name]
+            if not nasa_message_name(handler.nasa_msgnum) in nasa_state and isinstance(handler, FSVWriteMQTTHandler):
+              handler.initread()
       if args.nasa_pnp:
         # start PNP
         if not nasa_pnp_ended or (not nasa_pnp_ended and nasa_pnp_time + NASA_PNP_TIMEOUT < time.time()):
@@ -386,7 +388,7 @@ def publisher_thread():
       log.info("Communication lost!")
       os.kill(os.getpid(), signal.SIGTERM)
 
-    time.sleep(args.nasa_interval)
+    time.sleep(5)
 
 def mqtt_startup_thread():
   global mqtt_client
@@ -397,7 +399,7 @@ def mqtt_startup_thread():
       nasa_reset_state()
       pass
 
-  mqtt_client = mqtt.Client('samsung_ehs',clean_session=True)
+  mqtt_client = mqtt.Client(clean_session=True)
   mqtt_client.on_connect=on_connect
   # initial connect may fail if mqtt server is not running
   # post power outage, it may occur the mqtt server is unreachable until
