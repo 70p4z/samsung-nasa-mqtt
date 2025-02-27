@@ -72,6 +72,17 @@ def nasa_reset_state():
     nasa_state[nasa_message_name(0x423A)] = args.nasa_default_zone_temp*10
     nasa_state[nasa_message_name(0x42DA)] = args.nasa_default_zone_temp*10
 
+def nasa_payload_mqtt_handler(client, userdata, msg):
+  global pgw
+  mqttpayload = msg.payload.decode('utf-8')
+  try:
+    binpayload = tools.hex2bin(mqttpayload)
+    mqtt_client.publish('homeassistant/text/samsung_ehs_payload/state', mqttpayload)
+    # will prepend start, compute and append crc and stop
+    pgw.packet_tx(binpayload)
+  except:
+    traceback.print_exc()
+
 def nasa_fsv_writable():
   global nasa_fsv_unlocked
   return nasa_fsv_unlocked
@@ -464,6 +475,8 @@ def mqtt_setup():
   # minimum flow set to 10% to avoid LWT raising exponentially
   mqtt_create_topic(0x40C4, 'homeassistant/number/samsung_ehs_inv_pump_pwm/config', 'power_factor', 'Samsung EHS Inverter Pump PWM', 'homeassistant/number/samsung_ehs_inv_pump_pwm/state', '%', FSVLockUint8MQTTHandler, 'homeassistant/number/samsung_ehs_inv_pump_pwm/set', {"min": 10, "max": 100, "step": 1})
 
+  mqtt_create_topic(0x4202, 'homeassistant/sensor/samsung_ehs_temp_water_target/config', 'temperature', 'Samsung EHS Water Target', 'homeassistant/sensor/samsung_ehs_temp_water_target/state', '°C', IntDiv10MQTTHandler, None)
+
   mqtt_create_topic(0x4236, 'homeassistant/sensor/samsung_ehs_temp_water_in/config', 'temperature', 'Samsung EHS RWT Water In', 'homeassistant/sensor/samsung_ehs_temp_water_in/state', '°C', IntDiv10MQTTHandler, None)
   mqtt_create_topic(0x4238, 'homeassistant/sensor/samsung_ehs_temp_water_out/config', 'temperature', 'Samsung EHS LWT Water Out', 'homeassistant/sensor/samsung_ehs_temp_water_out/state', '°C', IntDiv10MQTTHandler, None)
   mqtt_create_topic(0x420C, 'homeassistant/sensor/samsung_ehs_temp_outer/config', 'temperature', 'Samsung EHS Temp Outer', 'homeassistant/sensor/samsung_ehs_temp_outer/state', '°C', IntDiv10MQTTHandler, None)
@@ -494,6 +507,17 @@ def mqtt_setup():
   topic_state = 'homeassistant/sensor/samsung_ehs_mqtt_bridge/date'
   mqtt_client.publish('homeassistant/sensor/samsung_ehs_mqtt_bridge/config', payload=json.dumps({'state_topic':topic_state,'name':'Samsung EHS Bridge restart date'}), retain=True)
   mqtt_client.publish('homeassistant/sensor/samsung_ehs_mqtt_bridge/date', payload=datetime.strftime(datetime.now(), "%Y%m%d%H%M%S"), retain=True)
+
+  # Raw payload sending
+  topic_payload_state = 'homeassistant/text/samsung_ehs_payload/state'
+  topic_payload_set = 'homeassistant/text/samsung_ehs_payload/set'
+  mqtt_client.message_callback_add(topic_payload_set, nasa_payload_mqtt_handler)
+  mqtt_client.subscribe(topic_payload_set)
+  mqtt_client.publish('homeassistant/text/samsung_ehs_payload/config', 
+    payload=json.dumps({'command_topic':topic_payload_set,
+                        'state_topic':topic_payload_state,
+                        'name':'Samsung EHS Payload'}), 
+    retain=True)
 
   # FSV unlock toggle to avoid unwanted finger modifications :)
   topic_state = 'homeassistant/switch/samsung_ehs_fsv_unlock/state'
