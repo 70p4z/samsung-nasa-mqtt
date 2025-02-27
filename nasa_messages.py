@@ -295,7 +295,7 @@ nasa_message_numbers = [
 [0x4147,  "ENUM_IN_GAS_LEVEL" ] ,
 [0x4149,  "ENUM_IN_DIFFUSER_OPERATION_POWER" ] ,
 [0x4201,  "VAR_IN_TEMP_TARGET_F"],
-[0x4202,  "VAR_IN___" ] ,
+[0x4202,  "VAR_IN_TEMP_DISCHARGE_REQUEST" ] ,
 [0x4203,  "VAR_IN_TEMP_ROOM_F"],
 [0x4204,  "VAR_IN___"],
 [0x4205,  "VAR_IN_TEMP_EVA_IN_F"],
@@ -849,26 +849,52 @@ def nasa_write_u16(intMsgNumber, intval, source=None):
   return tools.hex2bin(source+dest+"C012"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
 
 def nasa_read_u8(intMsgNumber, source=None):
+  if not isinstance(intMsgNumber, list):
+    intMsgNumber = [intMsgNumber]
   if not source:
     global attributed_address
     source = attributed_address  
   dest="B0FF20" # EHS
   # notifying of the value
-  msgnum= hex(0x10000+intMsgNumber)[-4:]
-  val= hex(0x10000)[-2:]
+  msg = ""
+  count=0
+  for intMsg in intMsgNumber:
+    msg+=hex(0x10000+intMsg)[-4:]+hex(0x1A5)[-2:]
+    count+=1
   #write
-  return tools.hex2bin(source+dest+"C011"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
+  return tools.hex2bin(source+dest+"C011"+ hex(0x100+getnonce())[3:]+hex(0x100+count)[3:]+msg)
 
 def nasa_read_u16(intMsgNumber, source=None):
+  if not isinstance(intMsgNumber, list):
+    intMsgNumber = [intMsgNumber]
   if not source:
     global attributed_address
     source = attributed_address
   dest="B0FF20" # EHS
   # notifying of the value
-  msgnum= hex(0x10000+intMsgNumber)[-4:]
-  val= hex(0x10000)[-4:]
+  msg = ""
+  count=0
+  for intMsg in intMsgNumber:
+    msg+=hex(0x10000+intMsg)[-4:]+hex(0x1A5A5)[-4:]
+    count+=1
   #write
-  return tools.hex2bin(source+dest+"C011"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
+  return tools.hex2bin(source+dest+"C011"+ hex(0x100+getnonce())[3:]+hex(0x100+count)[3:]+msg)
+
+def nasa_read_u32(intMsgNumber, source=None):
+  if not isinstance(intMsgNumber, list):
+    intMsgNumber = [intMsgNumber]
+  if not source:
+    global attributed_address
+    source = attributed_address
+  dest="B0FF20" # EHS
+  # notifying of the value
+  msg = ""
+  count=0
+  for intMsg in intMsgNumber:
+    msg+=hex(0x10000+intMsg)[-4:]+hex(0x1A5A5A5A5)[-8:]
+    count+=1
+  #write
+  return tools.hex2bin(source+dest+"C011"+ hex(0x100+getnonce())[3:]+hex(0x100+count)[3:]+msg)
 
 # TYPE: notification
 # on NASA protocol, setting the same value is not the way to inform EHS of the 
