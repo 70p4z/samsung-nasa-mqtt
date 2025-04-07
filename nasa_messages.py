@@ -986,7 +986,7 @@ zone_power_modes = {
 }
 # TYPE: request/ack
 #default mode is heating
-def nasa_zone_power(enabled=False, zone=1, target_temp=0, mode="HOT", source=None):
+def nasa_zone_power(enabled=False, zone=1, target_temp=0, mode=None, source=None):
   if not source:
     global attributed_address
     source = attributed_address
@@ -1001,29 +1001,33 @@ def nasa_zone_power(enabled=False, zone=1, target_temp=0, mode="HOT", source=Non
   if enabled:
     powerstate="01"
 
-  if not mode in zone_power_modes:
-    raise BaseException("Unsupported mode, check if in zone_power_modes enum")
+  if not mode is None:
+    if not mode in zone_power_modes:
+      raise BaseException("Unsupported mode, check if in zone_power_modes enum")
 
+  msgcount=1
   if zone == 1:
     # enabled
     payload +="4000"+ powerstate
     # mode
-    payload +="4001"+ zone_power_modes[mode]
-    msgcount=2
+    if not mode is None:
+      payload +="4001"+ zone_power_modes[mode]
+      msgcount+=1
     if target_temp!=0:
-      # target temp
+      # target temp for zone 1
       payload +="4201"+ target_temp_hex
-      msgcount=3
+      msgcount+=1
   elif zone == 2:
     # enabled
     payload +="411e"+ powerstate
     # mode
-    payload +="4001"+ zone_power_modes[mode]
-    msgcount=2
+    if not mode is None:
+      payload +="4001"+ zone_power_modes[mode]
+      msgcount+=1
     if target_temp!=0:
-      # target temp
+      # target temp for zone 2
       payload +="42d6"+ target_temp_hex
-      msgcount=3
+      msgcount+=1
   else:
     raise BaseException("Unsupported zone ("+hex(zone)+"), only 1 or 2")
     

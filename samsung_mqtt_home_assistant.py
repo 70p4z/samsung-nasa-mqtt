@@ -223,8 +223,47 @@ class Zone1IntDiv10MQTTHandler(IntDiv10MQTTHandler):
       global pgw
       pgw.packet_tx(nasa_set_zone1_temperature(float(mqttpayload)))
 
-class Zone1HOTSwitchMQTTHandler(ONOFFMQTTHandler):
+def ehs_get_mode(default_mode="HOT"):
+  global nasa_state
+  try:
+    # variable holding the current mode
+    nasa_name = nasa_message_name(0x4001)
+    if not nasa_name in nasa_state:
+      return default_mode
+    modeint = int(nasa_state[nasa_name])
+    if modeint == 0:
+      return "AUTO"
+    elif modeint == 1:
+      return "COLD"
+  except:
+    pass
+  return default_mode
+
+class EHSModeMQTTHandler(MQTTHandler):
+  def publish(self, valueInt):
+    if valueInt == 0:
+      self.mqtt_client.publish(self.topic, "Auto")
+    elif valueInt == 1:
+      self.mqtt_client.publish(self.topic, "Cold")
+    elif valueInt == 4:
+      self.mqtt_client.publish(self.topic, "Hot")
+
   def action(self, client, userdata, msg):
+    global pgw
+    payload = msg.payload.decode('utf-8')
+    if payload == "Auto":
+      if nasa_update(self.nasa_msgnum, 0):
+        pgw.packet_tx(nasa_set_u8(self.nasa_msgnum, 0))
+    elif payload == "Cold":
+      if nasa_update(self.nasa_msgnum, 1):
+        pgw.packet_tx(nasa_set_u8(self.nasa_msgnum, 1))
+    else: # Hot is default
+      if nasa_update(self.nasa_msgnum, 4):
+        pgw.packet_tx(nasa_set_u8(self.nasa_msgnum, 4))
+
+class Zone1SwitchMQTTHandler(ONOFFMQTTHandler):
+  def action(self, client, userdata, msg):
+    global nasa_state
     mqttpayload = msg.payload.decode('utf-8')
     global pgw
     enabled = mqttpayload == "ON"
@@ -240,8 +279,9 @@ class Zone2IntDiv10MQTTHandler(IntDiv10MQTTHandler):
       global pgw
       pgw.packet_tx(nasa_set_zone2_temperature(float(mqttpayload)))
       
-class Zone2HOTSwitchMQTTHandler(ONOFFMQTTHandler):
+class Zone2SwitchMQTTHandler(ONOFFMQTTHandler):
   def action(self, client, userdata, msg):
+    global nasa_state
     mqttpayload = msg.payload.decode('utf-8')
     global pgw
     enabled = mqttpayload == "ON"
@@ -363,6 +403,7 @@ def publisher_thread():
             handler = mqtt_published_vars[name]
             if not nasa_message_name(handler.nasa_msgnum) in nasa_state and isinstance(handler, FSVWriteMQTTHandler):
               handler.initread()
+              time.sleep(0.1)
       if args.nasa_pnp:
         # start PNP
         if not nasa_pnp_ended or (not nasa_pnp_ended and nasa_pnp_time + NASA_PNP_TIMEOUT < time.time()):
@@ -489,12 +530,15 @@ def mqtt_setup():
   
   mqtt_create_topic(0x427F, 'homeassistant/sensor/samsung_ehs_temp_water_law_target/config', 'temperature', 'Samsung EHS Temp Water Law Target', 'homeassistant/sensor/samsung_ehs_temp_water_law_target/state', '°C', IntDiv10MQTTHandler, None)
 
-  mqtt_create_topic(0x4000, 'homeassistant/switch/samsung_ehs_zone1/config', None, 'Samsung EHS Zone1', 'homeassistant/switch/samsung_ehs_zone1/state', None, Zone1HOTSwitchMQTTHandler, 'homeassistant/switch/samsung_ehs_zone1/set')
+  # EHS mode
+  mqtt_create_topic(0x4001, 'homeassistant/select/samsung_ehs_mode/config', None, 'Samsung EHS Mode', 'homeassistant/select/samsung_ehs_mode/state', None, EHSModeMQTTHandler, 'homeassistant/select/samsung_ehs_mode/set', {"options": ["Auto", "Cold", "Hot"]})
+
+  mqtt_create_topic(0x4000, 'homeassistant/switch/samsung_ehs_zone1/config', None, 'Samsung EHS Zone1', 'homeassistant/switch/samsung_ehs_zone1/state', None, Zone1SwitchMQTTHandler, 'homeassistant/switch/samsung_ehs_zone1/set')
   mqtt_create_topic(0x4201, 'homeassistant/number/samsung_ehs_temp_zone1_target/config', 'temperature', 'Samsung EHS Temp Zone1 Target', 'homeassistant/number/samsung_ehs_temp_zone1_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1_target/set', {"min": 16, "max": 28, "step": 0.5})
   mqtt_create_topic(0x423A, 'homeassistant/number/samsung_ehs_temp_zone1/config', 'temperature', 'Samsung EHS Temp Zone1', 'homeassistant/number/samsung_ehs_temp_zone1/state', '°C', Zone1IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1/set')
   mqtt_create_topic(0x42D8, 'homeassistant/sensor/samsung_ehs_temp_outlet_zone1/config', 'temperature', 'Samsung EHS Temp Outlet Zone1', 'homeassistant/sensor/samsung_ehs_temp_outlet_zone1/state', '°C', IntDiv10MQTTHandler, None)
   
-  mqtt_create_topic(0x411e, 'homeassistant/switch/samsung_ehs_zone2/config', None, 'Samsung EHS Zone2', 'homeassistant/switch/samsung_ehs_zone2/state', None, Zone2HOTSwitchMQTTHandler, 'homeassistant/switch/samsung_ehs_zone2/set')
+  mqtt_create_topic(0x411e, 'homeassistant/switch/samsung_ehs_zone2/config', None, 'Samsung EHS Zone2', 'homeassistant/switch/samsung_ehs_zone2/state', None, Zone2SwitchMQTTHandler, 'homeassistant/switch/samsung_ehs_zone2/set')
   mqtt_create_topic(0x42D6, 'homeassistant/number/samsung_ehs_temp_zone2_target/config', 'temperature', 'Samsung EHS Temp Zone2 Target', 'homeassistant/number/samsung_ehs_temp_zone2_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2_target/set', {"min": 16, "max": 28, "step": 0.5})
   mqtt_create_topic(0x42DA, 'homeassistant/number/samsung_ehs_temp_zone2/config', 'temperature', 'Samsung EHS Temp Zone2', 'homeassistant/number/samsung_ehs_temp_zone2/state', '°C', Zone2IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2/set')
   mqtt_create_topic(0x42D9, 'homeassistant/sensor/samsung_ehs_temp_outlet_zone2/config', 'temperature', 'Samsung EHS Temp Outlet Zone2', 'homeassistant/sensor/samsung_ehs_temp_outlet_zone2/state', '°C', IntDiv10MQTTHandler, None)
