@@ -4,11 +4,17 @@ After a few thinking, I wanted to ditch the wire for remote controller, to allow
 In the end, I ended up rewriting a NASA-MQTT bridge in python, allowing all the previous, and many more.
 
 ## Hardware parts
+The project has been tested in 2 different configurations:
+
+### Through F3/F4 pair
 I'm connecting using the F3/F4 pair, and a wireless raspberry pi zero w.
 
 The tricky part was to find how to communicate with the F3/F4 bus, using a THVD8000 proved useful and efficient.
 
 I'm designing a PCB to allow for USB<->F3/F4 to allow for more people to play with this.
+
+### Through F1/F2 pair
+It allows extracting many information from the AHSP. Also it's not yet suited to fully control it through that link.
 
 ## How to
 Just execute the samsung_mqtt_home_assistant.py script after tweaking its values (extended configuration means to come)
@@ -22,7 +28,7 @@ Here is a screenshot of the available items for my Samsung Mono R290 5kW (AE050C
 Many things are under construction:
   - A PCB for remote controller to go wireless (still using a plug adapter, but wirelessing the F3/F4 bus)
   - Home Assistant scripts to allow for aggregating multiple temperature sensor and set the zone 1/2 current temp according to user rules (min of, max of ...)
-  - Some sliders in home assistant to adjust target temperatures and min/max flow temperatures.
+  - more testing and control through F1/F2, there is a MITM I'd like to conduct to better heat the DHW, this is to reduce the water flow temperature to what is known to work but not too hot to avoid killing the CoP.
 
 ## Credits
 
