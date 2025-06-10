@@ -112,86 +112,88 @@ class MQTTHandler():
   def initread(self):
     pass
 
-class FSVWriteMQTTHandler(MQTTHandler):
-  def publish(self, valueInt):
-    self.mqtt_client.publish(self.topic, valueInt)
+  def can_modify(self):
+    return True
 
-class FSVWrite1MQTTHandler(FSVWriteMQTTHandler):
+class WriteMQTTHandler(MQTTHandler):
+  def __init__(self, mqtt_client, topic, nasa_msgnum, multiplier=1):
+    super().__init__(mqtt_client, topic, nasa_msgnum)
+    self.multiplier = float(multiplier)
+  def publish(self, valueInt):
+    if self.multiplier > 1:
+      self.mqtt_client.publish(self.topic, valueInt/self.multiplier)
+    else:
+      self.mqtt_client.publish(self.topic, valueInt)
   def action(self, client, userdata, msg):
-    if not nasa_fsv_writable():
+    if not self.can_modify():
+      self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
-    intval = int(float(msg.payload.decode('utf-8')))
+    intval = int(float(msg.payload.decode('utf-8'))*self.multiplier)
     if nasa_update(self.nasa_msgnum, intval):
       global pgw
-      pgw.packet_tx(nasa_write_u8(self.nasa_msgnum, intval))
+      pgw.packet_tx(nasa_write(self.nasa_msgnum, intval))
   def initread(self):
     global pgw
-    pgw.packet_tx(nasa_read_u8(self.nasa_msgnum))
+    pgw.packet_tx(nasa_read(self.nasa_msgnum))
 
-class FSVWrite2MQTTHandler(FSVWriteMQTTHandler):
+class FSVWriteMQTTHandler(WriteMQTTHandler):
+  def can_modify(self):
+    return nasa_fsv_writable()
+
+class SetMQTTHandler(WriteMQTTHandler):
   def action(self, client, userdata, msg):
-    if not nasa_fsv_writable():
+    if not self.can_modify():
+      self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
-    intval = int(float(msg.payload.decode('utf-8')))
+    intval = int(float(msg.payload.decode('utf-8'))*self.multiplier)
     if nasa_update(self.nasa_msgnum, intval):
       global pgw
-      pgw.packet_tx(nasa_write_u16(self.nasa_msgnum, intval))
-  def initread(self):
+      pgw.packet_tx(nasa_set(self.nasa_msgnum, intval))
+
+class FSVSetMQTTHandler(SetMQTTHandler):
+  def can_modify(self):
+    return nasa_fsv_writable()
+
+class StringIntMQTTHandler(WriteMQTTHandler):
+  def __init__(self, mqtt_client, topic, nasa_msgnum, handler_parameter):
+    super().__init__(mqtt_client, topic, nasa_msgnum)
+    self.map = handler_parameter
+
+  def publish(self, valueInt):
+    for s in self.map:
+      if self.map[s] == valueInt:
+        self.mqtt_client.publish(self.topic, s)  
+        break
+    else:
+      self.mqtt_client.publish(self.topic, "Unknown ("+str(valueInt)+")")
+
+  def action(self, client, userdata, msg):
+    if not nasa_fsv_writable():
+      self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
+      return
     global pgw
-    pgw.packet_tx(nasa_read_u16(self.nasa_msgnum))
+    payload = msg.payload.decode('utf-8')
+    for s in self.map:
+      if s == payload:
+        valueInt = self.map[s]
+        if nasa_update(self.nasa_msgnum, valueInt):
+          pgw.packet_tx(nasa_set(self.nasa_msgnum, valueInt))
+          break
+    else:
+      log.error("ignoring '" +self.topic + "' value: '" + payload + "'")
 
-class FSVWrite2Div10MQTTHandler(FSVWriteMQTTHandler):
-  def publish(self, valueInt):
-    self.mqtt_client.publish(self.topic, valueInt/10.0)
-  def action(self, client, userdata, msg):
-    if not nasa_fsv_writable():
-      return
-    intval = int(float(msg.payload.decode('utf-8'))*10)
-    if nasa_update(self.nasa_msgnum, intval):
-      global pgw
-      pgw.packet_tx(nasa_write_u16(self.nasa_msgnum, intval))
-  def initread(self):
-    global pgw
-    pgw.packet_tx(nasa_read_u16(self.nasa_msgnum))
+class FSVStringIntMQTTHandler(StringIntMQTTHandler):
+  def can_modify(self):
+    return nasa_fsv_writable()
 
-class Uint8MQTTHandler(MQTTHandler):
-  def publish(self, valueInt):
-    self.mqtt_client.publish(self.topic, valueInt)
-
-  def action(self, client, userdata, msg):
-    intval = int(float(msg.payload.decode('utf-8')))
-    if nasa_update(self.nasa_msgnum, intval):
-      global pgw
-      pgw.packet_tx(nasa_set_u8(self.nasa_msgnum, intval))
-
-class FSVLockUint8MQTTHandler(Uint8MQTTHandler):
-  def action(self, client, userdata, msg):
-    if not nasa_fsv_writable():
-      return
-    super().action(client, userdata, msg)
-
-class IntDiv10MQTTHandler(MQTTHandler):
-  def publish(self, valueInt):
-    self.mqtt_client.publish(self.topic, valueInt/10.0)
-
-  def action(self, client, userdata, msg):
-    intval = int(float(msg.payload.decode('utf-8'))*10)
-    if nasa_update(self.nasa_msgnum, intval):
-      global pgw
-      pgw.packet_tx(nasa_set_u16(self.nasa_msgnum, intval))
-      
-class IntDiv100MQTTHandler(MQTTHandler):
-  def publish(self, valueInt):
-    self.mqtt_client.publish(self.topic, valueInt/100.0)
-
-class ONOFFMQTTHandler(MQTTHandler):
+class ONOFFSetMQTTHandler(SetMQTTHandler):
   def publish(self, valueInt):
     valueStr = "ON"
     if valueInt==0:
       valueStr="OFF"
     self.mqtt_client.publish(self.topic, valueStr)
 
-class DHWONOFFMQTTHandler(ONOFFMQTTHandler):
+class DHWONOFFMQTTHandler(ONOFFSetMQTTHandler):
   def action(self, client, userdata, msg):
     mqttpayload = msg.payload.decode('utf-8')
     intval=0
@@ -213,7 +215,9 @@ class COPMQTTHandler(MQTTHandler):
     except:
       pass
 
-class Zone1IntDiv10MQTTHandler(IntDiv10MQTTHandler):
+class Zone1IntDiv10MQTTHandler(SetMQTTHandler):
+  def __init__(self, mqtt_client, topic, nasa_msgnum):
+    super().__init__(mqtt_client, topic, nasa_msgnum, 10)
   def action(self, client, userdata, msg):
     global nasa_state
     mqttpayload = msg.payload.decode('utf-8')
@@ -223,45 +227,7 @@ class Zone1IntDiv10MQTTHandler(IntDiv10MQTTHandler):
       global pgw
       pgw.packet_tx(nasa_set_zone1_temperature(float(mqttpayload)))
 
-def ehs_get_mode(default_mode="HOT"):
-  global nasa_state
-  try:
-    # variable holding the current mode
-    nasa_name = nasa_message_name(0x4001)
-    if not nasa_name in nasa_state:
-      return default_mode
-    modeint = int(nasa_state[nasa_name])
-    if modeint == 0:
-      return "AUTO"
-    elif modeint == 1:
-      return "COLD"
-  except:
-    pass
-  return default_mode
-
-class EHSModeMQTTHandler(MQTTHandler):
-  def publish(self, valueInt):
-    if valueInt == 0:
-      self.mqtt_client.publish(self.topic, "Auto")
-    elif valueInt == 1:
-      self.mqtt_client.publish(self.topic, "Cold")
-    elif valueInt == 4:
-      self.mqtt_client.publish(self.topic, "Hot")
-
-  def action(self, client, userdata, msg):
-    global pgw
-    payload = msg.payload.decode('utf-8')
-    if payload == "Auto":
-      if nasa_update(self.nasa_msgnum, 0):
-        pgw.packet_tx(nasa_set_u8(self.nasa_msgnum, 0))
-    elif payload == "Cold":
-      if nasa_update(self.nasa_msgnum, 1):
-        pgw.packet_tx(nasa_set_u8(self.nasa_msgnum, 1))
-    else: # Hot is default
-      if nasa_update(self.nasa_msgnum, 4):
-        pgw.packet_tx(nasa_set_u8(self.nasa_msgnum, 4))
-
-class Zone1SwitchMQTTHandler(ONOFFMQTTHandler):
+class Zone1SwitchMQTTHandler(ONOFFSetMQTTHandler):
   def action(self, client, userdata, msg):
     global nasa_state
     mqttpayload = msg.payload.decode('utf-8')
@@ -269,7 +235,9 @@ class Zone1SwitchMQTTHandler(ONOFFMQTTHandler):
     enabled = mqttpayload == "ON"
     pgw.packet_tx(nasa_zone_power(enabled,1))
 
-class Zone2IntDiv10MQTTHandler(IntDiv10MQTTHandler):
+class Zone2IntDiv10MQTTHandler(SetMQTTHandler):
+  def __init__(self, mqtt_client, topic, nasa_msgnum):
+    super().__init__(mqtt_client, topic, nasa_msgnum, 10)
   def action(self, client, userdata, msg):
     global nasa_state
     mqttpayload = msg.payload.decode('utf-8')
@@ -279,7 +247,7 @@ class Zone2IntDiv10MQTTHandler(IntDiv10MQTTHandler):
       global pgw
       pgw.packet_tx(nasa_set_zone2_temperature(float(mqttpayload)))
       
-class Zone2SwitchMQTTHandler(ONOFFMQTTHandler):
+class Zone2SwitchMQTTHandler(ONOFFSetMQTTHandler):
   def action(self, client, userdata, msg):
     global nasa_state
     mqttpayload = msg.payload.decode('utf-8')
@@ -302,6 +270,9 @@ def rx_nasa_handler(*nargs, **kwargs):
   dataSets = kwargs["dataSets"]
   source = kwargs["source"]
   dest = kwargs["dest"]
+
+  nasa_log_packet(log, source, dest, packetType, payloadType, packetNumber, dataSets)
+
   # ignore non normal packets
   if packetType != "normal":
     log.info("ignoring type of packet")
@@ -401,7 +372,7 @@ def publisher_thread():
 
           for name in mqtt_published_vars:
             handler = mqtt_published_vars[name]
-            if not nasa_message_name(handler.nasa_msgnum) in nasa_state and isinstance(handler, FSVWriteMQTTHandler):
+            if not nasa_message_name(handler.nasa_msgnum) in nasa_state and (isinstance(handler, FSVWriteMQTTHandler) or isinstance(handler, FSVSetMQTTHandler) or isinstance(handler, FSVStringIntMQTTHandler)):
               handler.initread()
               time.sleep(0.1)
       if args.nasa_pnp:
@@ -415,7 +386,7 @@ def publisher_thread():
         if nasa_pnp_ended and nasa_pnp_check_requested and nasa_pnp_time + NASA_PNP_RESPONSE_TIMEOUT < time.time():
           # retry check
           if nasa_pnp_check_retries < NASA_PNP_CHECK_RETRIES:
-            pgw.packet_tx(nasa_read_u16(0x4229))
+            pgw.packet_tx(nasa_read(0x4203))
             nasa_pnp_time=time.time()
             nasa_pnp_check_requested=True
           # consider PNP to be redone
@@ -436,7 +407,7 @@ def publisher_thread():
     except:
       traceback.print_exc()
     # handle communication timeout
-    if last_nasa_rx + args.nasa_timeout < time.time():
+    if args.nasa_timeout > 0 and last_nasa_rx + args.nasa_timeout < time.time():
       log.info("Communication lost!")
       os.kill(os.getpid(), signal.SIGTERM)
 
@@ -466,8 +437,10 @@ def mqtt_startup_thread():
       traceback.print_exc()
     time.sleep(1) 
 
-def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state, unit_name, type_handler, topic_set, desc_base={}):
+def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state, unit_name, type_handler, topic_set=None, desc_base={}, handler_parameter=None):
   config_content={}
+  if desc_base is None:
+    desc_base = {}
   for k in desc_base:
     config_content[k] = desc_base[k]
   config_content["name"]= name
@@ -490,7 +463,10 @@ def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state
 
   nasa_name = nasa_message_name(nasa_msgnum)
   if not nasa_name in mqtt_published_vars:
-    handler = type_handler(mqtt_client, topic, nasa_msgnum)
+    if handler_parameter is None: 
+      handler = type_handler(mqtt_client, topic, nasa_msgnum)
+    else:
+      handler = type_handler(mqtt_client, topic, nasa_msgnum, handler_parameter)
     mqtt_published_vars[nasa_name] = handler
   
   handler = mqtt_published_vars[nasa_name]
@@ -514,38 +490,39 @@ def mqtt_setup():
                         "state_topic": 'homeassistant/sensor/samsung_ehs_current_input_power/state_cop'}), 
     retain=True)
   # minimum flow set to 10% to avoid LWT raising exponentially
-  mqtt_create_topic(0x40C4, 'homeassistant/number/samsung_ehs_inv_pump_pwm/config', 'power_factor', 'Samsung EHS Inverter Pump PWM', 'homeassistant/number/samsung_ehs_inv_pump_pwm/state', '%', FSVLockUint8MQTTHandler, 'homeassistant/number/samsung_ehs_inv_pump_pwm/set', {"min": 10, "max": 100, "step": 1})
+  mqtt_create_topic(0x40C4, 'homeassistant/number/samsung_ehs_inv_pump_pwm/config', 'power_factor', 'Samsung EHS Inverter Pump PWM', 'homeassistant/number/samsung_ehs_inv_pump_pwm/state', '%', FSVSetMQTTHandler, 'homeassistant/number/samsung_ehs_inv_pump_pwm/set', {"min": 10, "max": 100, "step": 1})
 
-  mqtt_create_topic(0x4202, 'homeassistant/sensor/samsung_ehs_temp_water_target/config', 'temperature', 'Samsung EHS Water Target', 'homeassistant/sensor/samsung_ehs_temp_water_target/state', '°C', IntDiv10MQTTHandler, None)
+  mqtt_create_topic(0x4202, 'homeassistant/sensor/samsung_ehs_temp_water_target/config', 'temperature', 'Samsung EHS Water Target', 'homeassistant/sensor/samsung_ehs_temp_water_target/state', '°C', SetMQTTHandler, None, None, 10)
 
-  mqtt_create_topic(0x4236, 'homeassistant/sensor/samsung_ehs_temp_water_in/config', 'temperature', 'Samsung EHS RWT Water In', 'homeassistant/sensor/samsung_ehs_temp_water_in/state', '°C', IntDiv10MQTTHandler, None)
-  mqtt_create_topic(0x4238, 'homeassistant/sensor/samsung_ehs_temp_water_out/config', 'temperature', 'Samsung EHS LWT Water Out', 'homeassistant/sensor/samsung_ehs_temp_water_out/state', '°C', IntDiv10MQTTHandler, None)
-  mqtt_create_topic(0x420C, 'homeassistant/sensor/samsung_ehs_temp_outer/config', 'temperature', 'Samsung EHS Temp Outer', 'homeassistant/sensor/samsung_ehs_temp_outer/state', '°C', IntDiv10MQTTHandler, None)
-  mqtt_create_topic(0x4205, 'homeassistant/sensor/samsung_ehs_temp_eva_in/config', 'temperature', 'Samsung EHS Temp EVA In', 'homeassistant/sensor/samsung_ehs_temp_eva_in/state', '°C', IntDiv10MQTTHandler, None)
-  mqtt_create_topic(0x428C, 'homeassistant/sensor/samsung_ehs_temp_mixing_valve_zone1/config', 'temperature', 'Samsung EHS Temp Mixing Valve Zone1', 'homeassistant/sensor/samsung_ehs_temp_mixing_valve_zone1/state', '°C', IntDiv10MQTTHandler, None)
-  mqtt_create_topic(0x42E9, 'homeassistant/sensor/samsung_ehs_water_flow/config', 'volume_flow_rate', 'Samsung EHS Water Flow', 'homeassistant/sensor/samsung_ehs_water_flow/state', 'L/min', IntDiv10MQTTHandler, None)
-  mqtt_create_topic(0x4028, 'homeassistant/binary_sensor/samsung_ehs_op/config', 'running', 'Samsung EHS Operating', 'homeassistant/binary_sensor/samsung_ehs_op/state', None, ONOFFMQTTHandler, None)
-  mqtt_create_topic(0x402E, 'homeassistant/binary_sensor/samsung_ehs_defrosting_op/config', 'running', 'Samsung EHS Defrosting', 'homeassistant/binary_sensor/samsung_ehs_defrosting_op/state', None, ONOFFMQTTHandler, None)
-  mqtt_create_topic(0x82FE, 'homeassistant/sensor/samsung_ehs_water_pressure/config', 'pressure', 'Samsung EHS Water Pressure', 'homeassistant/sensor/samsung_ehs_water_pressure/state', 'bar', IntDiv100MQTTHandler, None)
+  mqtt_create_topic(0x4236, 'homeassistant/sensor/samsung_ehs_temp_water_in/config', 'temperature', 'Samsung EHS RWT Water In', 'homeassistant/sensor/samsung_ehs_temp_water_in/state', '°C', SetMQTTHandler, None, None, 10)
+  mqtt_create_topic(0x4238, 'homeassistant/sensor/samsung_ehs_temp_water_out/config', 'temperature', 'Samsung EHS LWT Water Out', 'homeassistant/sensor/samsung_ehs_temp_water_out/state', '°C', SetMQTTHandler, None, None, 10)
+  mqtt_create_topic(0x420C, 'homeassistant/sensor/samsung_ehs_temp_outer/config', 'temperature', 'Samsung EHS Temp Outer', 'homeassistant/sensor/samsung_ehs_temp_outer/state', '°C', SetMQTTHandler, None, None, 10)
+  mqtt_create_topic(0x4205, 'homeassistant/sensor/samsung_ehs_temp_eva_in/config', 'temperature', 'Samsung EHS Temp EVA In', 'homeassistant/sensor/samsung_ehs_temp_eva_in/state', '°C', SetMQTTHandler, None, None, 10)
+  mqtt_create_topic(0x428C, 'homeassistant/sensor/samsung_ehs_temp_mixing_valve_zone1/config', 'temperature', 'Samsung EHS Temp Mixing Valve Zone1', 'homeassistant/sensor/samsung_ehs_temp_mixing_valve_zone1/state', '°C', SetMQTTHandler, None, None, 10)
+  mqtt_create_topic(0x42E9, 'homeassistant/sensor/samsung_ehs_water_flow/config', 'volume_flow_rate', 'Samsung EHS Water Flow', 'homeassistant/sensor/samsung_ehs_water_flow/state', 'L/min', SetMQTTHandler, None, None, 10)
+  mqtt_create_topic(0x4028, 'homeassistant/binary_sensor/samsung_ehs_op/config', 'running', 'Samsung EHS Operating', 'homeassistant/binary_sensor/samsung_ehs_op/state', None, ONOFFSetMQTTHandler)
+  mqtt_create_topic(0x402E, 'homeassistant/binary_sensor/samsung_ehs_defrosting_op/config', 'running', 'Samsung EHS Defrosting', 'homeassistant/binary_sensor/samsung_ehs_defrosting_op/state', None, ONOFFSetMQTTHandler)
+  mqtt_create_topic(0x82FE, 'homeassistant/sensor/samsung_ehs_water_pressure/config', 'pressure', 'Samsung EHS Water Pressure', 'homeassistant/sensor/samsung_ehs_water_pressure/state', 'bar', SetMQTTHandler, None, None, 100)
   
-  mqtt_create_topic(0x427F, 'homeassistant/sensor/samsung_ehs_temp_water_law_target/config', 'temperature', 'Samsung EHS Temp Water Law Target', 'homeassistant/sensor/samsung_ehs_temp_water_law_target/state', '°C', IntDiv10MQTTHandler, None)
+  mqtt_create_topic(0x427F, 'homeassistant/sensor/samsung_ehs_temp_water_law_target/config', 'temperature', 'Samsung EHS Temp Water Law Target', 'homeassistant/sensor/samsung_ehs_temp_water_law_target/state', '°C', SetMQTTHandler, None, None, 10)
 
   # EHS mode
-  mqtt_create_topic(0x4001, 'homeassistant/select/samsung_ehs_mode/config', None, 'Samsung EHS Mode', 'homeassistant/select/samsung_ehs_mode/state', None, EHSModeMQTTHandler, 'homeassistant/select/samsung_ehs_mode/set', {"options": ["Auto", "Cold", "Hot"]})
+  optmap={"automatic (0)":0, "cooling (1)":1, "heating (4)":4}
+  mqtt_create_topic(0x4001, 'homeassistant/select/samsung_ehs_mode/config', None, 'Samsung EHS Mode', 'homeassistant/select/samsung_ehs_mode/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_mode/set', {"options": [*optmap]}, optmap)
 
   mqtt_create_topic(0x4000, 'homeassistant/switch/samsung_ehs_zone1/config', None, 'Samsung EHS Zone1', 'homeassistant/switch/samsung_ehs_zone1/state', None, Zone1SwitchMQTTHandler, 'homeassistant/switch/samsung_ehs_zone1/set')
-  mqtt_create_topic(0x4201, 'homeassistant/number/samsung_ehs_temp_zone1_target/config', 'temperature', 'Samsung EHS Temp Zone1 Target', 'homeassistant/number/samsung_ehs_temp_zone1_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1_target/set', {"min": 16, "max": 28, "step": 0.5})
+  mqtt_create_topic(0x4201, 'homeassistant/number/samsung_ehs_temp_zone1_target/config', 'temperature', 'Samsung EHS Temp Zone1 Target', 'homeassistant/number/samsung_ehs_temp_zone1_target/state', '°C', SetMQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1_target/set', {"min": 16, "max": 28, "step": 0.5}, 10)
   mqtt_create_topic(0x423A, 'homeassistant/number/samsung_ehs_temp_zone1/config', 'temperature', 'Samsung EHS Temp Zone1', 'homeassistant/number/samsung_ehs_temp_zone1/state', '°C', Zone1IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1/set')
-  mqtt_create_topic(0x42D8, 'homeassistant/sensor/samsung_ehs_temp_outlet_zone1/config', 'temperature', 'Samsung EHS Temp Outlet Zone1', 'homeassistant/sensor/samsung_ehs_temp_outlet_zone1/state', '°C', IntDiv10MQTTHandler, None)
+  mqtt_create_topic(0x42D8, 'homeassistant/sensor/samsung_ehs_temp_outlet_zone1/config', 'temperature', 'Samsung EHS Temp Outlet Zone1', 'homeassistant/sensor/samsung_ehs_temp_outlet_zone1/state', '°C', SetMQTTHandler, None, None, 10)
   
   mqtt_create_topic(0x411e, 'homeassistant/switch/samsung_ehs_zone2/config', None, 'Samsung EHS Zone2', 'homeassistant/switch/samsung_ehs_zone2/state', None, Zone2SwitchMQTTHandler, 'homeassistant/switch/samsung_ehs_zone2/set')
-  mqtt_create_topic(0x42D6, 'homeassistant/number/samsung_ehs_temp_zone2_target/config', 'temperature', 'Samsung EHS Temp Zone2 Target', 'homeassistant/number/samsung_ehs_temp_zone2_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2_target/set', {"min": 16, "max": 28, "step": 0.5})
+  mqtt_create_topic(0x42D6, 'homeassistant/number/samsung_ehs_temp_zone2_target/config', 'temperature', 'Samsung EHS Temp Zone2 Target', 'homeassistant/number/samsung_ehs_temp_zone2_target/state', '°C', SetMQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2_target/set', {"min": 16, "max": 28, "step": 0.5}, 10)
   mqtt_create_topic(0x42DA, 'homeassistant/number/samsung_ehs_temp_zone2/config', 'temperature', 'Samsung EHS Temp Zone2', 'homeassistant/number/samsung_ehs_temp_zone2/state', '°C', Zone2IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2/set')
-  mqtt_create_topic(0x42D9, 'homeassistant/sensor/samsung_ehs_temp_outlet_zone2/config', 'temperature', 'Samsung EHS Temp Outlet Zone2', 'homeassistant/sensor/samsung_ehs_temp_outlet_zone2/state', '°C', IntDiv10MQTTHandler, None)
+  mqtt_create_topic(0x42D9, 'homeassistant/sensor/samsung_ehs_temp_outlet_zone2/config', 'temperature', 'Samsung EHS Temp Outlet Zone2', 'homeassistant/sensor/samsung_ehs_temp_outlet_zone2/state', '°C', SetMQTTHandler, None, None, 10)
 
-  mqtt_create_topic(0x4235, 'homeassistant/number/samsung_ehs_temp_dhw_target/config', 'temperature', 'Samsung EHS Temp DHW Target', 'homeassistant/number/samsung_ehs_temp_dhw_target/state', '°C', IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_dhw_target/set', {"min": 35, "max": 70, "step": 1})
+  mqtt_create_topic(0x4235, 'homeassistant/number/samsung_ehs_temp_dhw_target/config', 'temperature', 'Samsung EHS Temp DHW Target', 'homeassistant/number/samsung_ehs_temp_dhw_target/state', '°C', SetMQTTHandler, 'homeassistant/number/samsung_ehs_temp_dhw_target/set', {"min": 35, "max": 70, "step": 1}, 10)
   mqtt_create_topic(0x4065, 'homeassistant/switch/samsung_ehs_dhw/config', None, 'Samsung EHS DHW', 'homeassistant/switch/samsung_ehs_dhw/state', None, DHWONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_dhw/set')
-  mqtt_create_topic(0x4237, 'homeassistant/sensor/samsung_ehs_temp_dhw/config', 'temperature', 'Samsung EHS Temp DHW Tank', 'homeassistant/sensor/samsung_ehs_temp_dhw/state', '°C', IntDiv10MQTTHandler, None)
+  mqtt_create_topic(0x4237, 'homeassistant/sensor/samsung_ehs_temp_dhw/config', 'temperature', 'Samsung EHS Temp DHW Tank', 'homeassistant/sensor/samsung_ehs_temp_dhw/state', '°C', SetMQTTHandler, None, None, 10)
 
   # notify of script start
   topic_state = 'homeassistant/sensor/samsung_ehs_mqtt_bridge/date'
@@ -579,52 +556,59 @@ def mqtt_setup():
   mqtt_client.publish(topic_state, 'OFF')
 
   # FSV values
-  mqtt_create_topic(0x4127, 'homeassistant/number/samsung_ehs_2093_tempctrl/config', None, 'Samsung EHS FSV2093 Temp Control', 'homeassistant/number/samsung_ehs_2093_tempctrl/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_2093_tempctrl/set', {"min": 1, "max": 4, "step": 1})
-  mqtt_create_topic(0x40C2, 'homeassistant/number/samsung_ehs_4051_inv_pump_ctrl/config', None, 'Samsung EHS FSV4051 Inverter Pump Control', 'homeassistant/number/samsung_ehs_4051_inv_pump_ctrl/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_4051_inv_pump_ctrl/set', {"min": 0, "max": 2, "step": 1})
-  mqtt_create_topic(0x428A, 'homeassistant/number/samsung_ehs_4052_dt_target/config', 'temperature', 'Samsung EHS FSV4052 dT Target', 'homeassistant/number/samsung_ehs_4052_dt_target/state', '°C', FSVWrite2MQTTHandler, 'homeassistant/number/samsung_ehs_4052_dt_target/set', {"min": 2, "max": 8, "step": 1})
-  mqtt_create_topic(0x40C3, 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/config', None, 'Samsung EHS FSV4053 Inverter Pump Factor', 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/set', {"min": 1, "max": 3, "step": 1})
+  optmap={"only ambient (1)":1, "thermo off -> pump off (2)":2, "thermo off -> pump on (3)":3, "thermo off -> 70% pump on (4)":4}
+  mqtt_create_topic(0x4127, 'homeassistant/select/samsung_ehs_2093_tempctrl/config', None, 'Samsung EHS FSV2093 Temp Control', 'homeassistant/select/samsung_ehs_2093_tempctrl/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_2093_tempctrl/set', {"options": [*optmap]}, optmap)
+  optmap={"no inverter pump (0)":0, "inverter pump use 100% (1)":1, "inverter pump use 70% (2)":2}
+  mqtt_create_topic(0x40C2, 'homeassistant/select/samsung_ehs_4051_inv_pump_ctrl/config', None, 'Samsung EHS FSV4051 Inverter Pump Control', 'homeassistant/select/samsung_ehs_4051_inv_pump_ctrl/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_4051_inv_pump_ctrl/set', {"options": [*optmap]}, optmap)
+  mqtt_create_topic(0x428A, 'homeassistant/number/samsung_ehs_4052_dt_target/config', 'temperature', 'Samsung EHS FSV4052 dT Target', 'homeassistant/number/samsung_ehs_4052_dt_target/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_4052_dt_target/set', {"min": 2, "max": 8, "step": 1})
+  mqtt_create_topic(0x40C3, 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/config', None, 'Samsung EHS FSV4053 Inverter Pump Factor', 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/set', {"min": 1, "max": 3, "step": 1})
   # DHW
-  mqtt_create_topic(0x4097, 'homeassistant/number/samsung_ehs_3011_dhw_ctrl/config', None, 'Samsung EHS FSV3011 DHW Control', 'homeassistant/number/samsung_ehs_3011_dhw_ctrl/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_3011_dhw_ctrl/set', {"min": 0, "max": 2, "step": 1})
-  mqtt_create_topic(0x4260, 'homeassistant/number/samsung_ehs_3021_dhw_max_temp/config', None, 'Samsung EHS FSV3021 DHW Max Temp', 'homeassistant/number/samsung_ehs_3021_dhw_max_temp/state', None, FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_3021_dhw_max_temp/set', {"min": 0, "max": 70, "step": 1})
-  mqtt_create_topic(0x4261, 'homeassistant/number/samsung_ehs_3022_dhw_stop_temp/config', None, 'Samsung EHS FSV3022 DHW Stop Temp', 'homeassistant/number/samsung_ehs_3022_dhw_stop_temp/state', None, FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_3022_dhw_stop_temp/set', {"min": 0, "max": 10, "step": 1})
-  mqtt_create_topic(0x4262, 'homeassistant/number/samsung_ehs_3023_dhw_start_temp/config', None, 'Samsung EHS FSV3023 DHW Start Temp', 'homeassistant/number/samsung_ehs_3023_dhw_start_temp/state', None, FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_3023_dhw_start_temp/set', {"min": 0, "max": 30, "step": 1})
-  mqtt_create_topic(0x4263, 'homeassistant/number/samsung_ehs_3024_dhw_sh_min_sh_time/config', None, 'Samsung EHS FSV3024 DHW+SH Min Heating Duration', 'homeassistant/number/samsung_ehs_3024_dhw_sh_min_time/state', None, FSVWrite2MQTTHandler, 'homeassistant/number/samsung_ehs_3024_dhw_sh_min_time/set', {"min": 1, "max": 20, "step": 1})
-  mqtt_create_topic(0x4264, 'homeassistant/number/samsung_ehs_3025_dhw_sh_max_dhw_time/config', None, 'Samsung EHS FSV3025 DHW+SH Max DHW Duration', 'homeassistant/number/samsung_ehs_3025_dhw_sh_max_dhw_time/state', None, FSVWrite2MQTTHandler, 'homeassistant/number/samsung_ehs_3025_dhw_sh_max_dhw_time/set', {"min": 5, "max": 95, "step": 5})
-  mqtt_create_topic(0x4265, 'homeassistant/number/samsung_ehs_3026_dhw_sh_max_sh_time/config', None, 'Samsung EHS FSV3026 DHW+SH Max Heating Duration', 'homeassistant/number/samsung_ehs_3026_dhw_sh_max_sh_time/state', None, FSVWrite2MQTTHandler, 'homeassistant/number/samsung_ehs_3026_dhw_sh_max_sh_time/set', {"min": 30, "max": 600, "step": 30})
-  mqtt_create_topic(0x4098, 'homeassistant/number/samsung_ehs_3031_dhw_booster_ctrl/config', None, 'Samsung EHS FSV3031 DHW Booster Control', 'homeassistant/number/samsung_ehs_3031_dhw_booster_ctrl/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_3031_dhw_booster_ctrl/set', {"min": 0, "max": 2, "step": 1})
-  mqtt_create_topic(0x4099, 'homeassistant/number/samsung_ehs_3041_dhw_disinfect/config', None, 'Samsung EHS FSV3041 DHW Disinfection', 'homeassistant/number/samsung_ehs_3041_dhw_disinfect/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_3041_dhw_disinfect/set', {"min": 0, "max": 1, "step": 1})
-  mqtt_create_topic(0x409B, 'homeassistant/number/samsung_ehs_3051_dhw_forced_timer_off/config', None, 'Samsung EHS FSV3051 DHW Forced Timer OFF', 'homeassistant/number/samsung_ehs_3051_dhw_forced_timer_off/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_3051_dhw_forced_timer_off/set', {"min": 0, "max": 1, "step": 1}) 
-  mqtt_create_topic(0x426C, 'homeassistant/number/samsung_ehs_3052_dhw_forced_timer_off_duration/config', None, 'Samsung EHS FSV3052 DHW Forced Timer Duration', 'homeassistant/number/samsung_ehs_3052_dhw_forced_timer_off_duration/state', None, FSVWrite2MQTTHandler, 'homeassistant/number/samsung_ehs_3052_dhw_forced_timer_off_duration/set', {"min": 0, "max": 30, "step": 1})
-  mqtt_create_topic(0x4093, 'homeassistant/number/samsung_ehs_2041_wl/config', None, 'Samsung EHS FSV2041 Water Law', 'homeassistant/number/samsung_ehs_2041_wl/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_2041_wl/set', {"min": 1, "max": 2, "step": 1})
+  optmap={"no DHW":0, "DHW thermo on temp (1)":1, "DHW thermo off temp (2)": 2}
+  mqtt_create_topic(0x4097, 'homeassistant/select/samsung_ehs_3011_dhw_ctrl/config', None, 'Samsung EHS FSV3011 DHW Control', 'homeassistant/select/samsung_ehs_3011_dhw_ctrl/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_3011_dhw_ctrl/set', {"options": [*optmap]}, optmap)
+  mqtt_create_topic(0x4260, 'homeassistant/number/samsung_ehs_3021_dhw_max_temp/config', None, 'Samsung EHS FSV3021 DHW Max Temp', 'homeassistant/number/samsung_ehs_3021_dhw_max_temp/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3021_dhw_max_temp/set', {"min": 0, "max": 70, "step": 1}, 10)
+  mqtt_create_topic(0x4261, 'homeassistant/number/samsung_ehs_3022_dhw_stop_temp/config', None, 'Samsung EHS FSV3022 DHW Stop Temp', 'homeassistant/number/samsung_ehs_3022_dhw_stop_temp/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3022_dhw_stop_temp/set', {"min": 0, "max": 10, "step": 1}, 10)
+  mqtt_create_topic(0x4262, 'homeassistant/number/samsung_ehs_3023_dhw_start_temp/config', None, 'Samsung EHS FSV3023 DHW Start Temp', 'homeassistant/number/samsung_ehs_3023_dhw_start_temp/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3023_dhw_start_temp/set', {"min": 0, "max": 30, "step": 1}, 10)
+  mqtt_create_topic(0x4263, 'homeassistant/number/samsung_ehs_3024_dhw_sh_min_sh_time/config', None, 'Samsung EHS FSV3024 DHW+SH Min Heating Duration', 'homeassistant/number/samsung_ehs_3024_dhw_sh_min_time/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3024_dhw_sh_min_time/set', {"min": 1, "max": 20, "step": 1})
+  mqtt_create_topic(0x4264, 'homeassistant/number/samsung_ehs_3025_dhw_sh_max_dhw_time/config', None, 'Samsung EHS FSV3025 DHW+SH Max DHW Duration', 'homeassistant/number/samsung_ehs_3025_dhw_sh_max_dhw_time/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3025_dhw_sh_max_dhw_time/set', {"min": 5, "max": 95, "step": 5})
+  mqtt_create_topic(0x4265, 'homeassistant/number/samsung_ehs_3026_dhw_sh_max_sh_time/config', None, 'Samsung EHS FSV3026 DHW+SH Max Heating Duration', 'homeassistant/number/samsung_ehs_3026_dhw_sh_max_sh_time/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3026_dhw_sh_max_sh_time/set', {"min": 30, "max": 600, "step": 30})
+  optmap={"no booster (0)":0, "booster used (1)":1}
+  mqtt_create_topic(0x4098, 'homeassistant/select/samsung_ehs_3031_dhw_booster_ctrl/config', None, 'Samsung EHS FSV3031 DHW Booster Control', 'homeassistant/select/samsung_ehs_3031_dhw_booster_ctrl/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_3031_dhw_booster_ctrl/set', {"options": [*optmap]}, optmap)
+  mqtt_create_topic(0x4099, 'homeassistant/number/samsung_ehs_3041_dhw_disinfect/config', None, 'Samsung EHS FSV3041 DHW Disinfection', 'homeassistant/number/samsung_ehs_3041_dhw_disinfect/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3041_dhw_disinfect/set', {"min": 0, "max": 1, "step": 1})
+  mqtt_create_topic(0x409B, 'homeassistant/number/samsung_ehs_3051_dhw_forced_timer_off/config', None, 'Samsung EHS FSV3051 DHW Forced Timer OFF', 'homeassistant/number/samsung_ehs_3051_dhw_forced_timer_off/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3051_dhw_forced_timer_off/set', {"min": 0, "max": 1, "step": 1}) 
+  mqtt_create_topic(0x426C, 'homeassistant/number/samsung_ehs_3052_dhw_forced_timer_off_duration/config', None, 'Samsung EHS FSV3052 DHW Forced Timer Duration', 'homeassistant/number/samsung_ehs_3052_dhw_forced_timer_off_duration/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3052_dhw_forced_timer_off_duration/set', {"min": 0, "max": 30, "step": 1})
+  mqtt_create_topic(0x4093, 'homeassistant/number/samsung_ehs_2041_wl/config', None, 'Samsung EHS FSV2041 Water Law', 'homeassistant/number/samsung_ehs_2041_wl/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2041_wl/set', {"min": 1, "max": 2, "step": 1})
   #heating
-  mqtt_create_topic(0x4254, 'homeassistant/number/samsung_ehs_2011_wlmax/config', 'temperature', 'Samsung EHS FSV2011 Heating Water Law Max', 'homeassistant/number/samsung_ehs_2011_wlmax/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2011_wlmax/set', {"min": -20, "max": 5, "step": 1})
-  mqtt_create_topic(0x4255, 'homeassistant/number/samsung_ehs_2012_wlmin/config', 'temperature', 'Samsung EHS FSV2012 Heating Water Law Min', 'homeassistant/number/samsung_ehs_2012_wlmin/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2012_wlmin/set', {"min": 10, "max": 20, "step": 1})
-  mqtt_create_topic(0x4256, 'homeassistant/number/samsung_ehs_2021_wl1max/config', 'temperature', 'Samsung EHS FSV2021 Heating Water Out WL1 Temp Max', 'homeassistant/number/samsung_ehs_2021_wl1max/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2021_wl1max/set', {"min": 17, "max": 75, "step": 1})
-  mqtt_create_topic(0x4257, 'homeassistant/number/samsung_ehs_2022_wl1min/config', 'temperature', 'Samsung EHS FSV2022 Heating Water Out WL1 Temp Min', 'homeassistant/number/samsung_ehs_2022_wl1min/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2022_wl1min/set', {"min": 17, "max": 75, "step": 1})
-  mqtt_create_topic(0x4258, 'homeassistant/number/samsung_ehs_2031_wl2max/config', 'temperature', 'Samsung EHS FSV2031 Heating Water Out WL2 Temp Max', 'homeassistant/number/samsung_ehs_2031_wl2max/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2031_wl2max/set', {"min": 17, "max": 75, "step": 1})
-  mqtt_create_topic(0x4259, 'homeassistant/number/samsung_ehs_2032_wl2min/config', 'temperature', 'Samsung EHS FSV2032 Heating Water Out WL2 Temp Min', 'homeassistant/number/samsung_ehs_2032_wl2min/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2032_wl2min/set', {"min": 17, "max": 75, "step": 1})
+  mqtt_create_topic(0x4254, 'homeassistant/number/samsung_ehs_2011_wlmax/config', 'temperature', 'Samsung EHS FSV2011 Heating Water Law Max', 'homeassistant/number/samsung_ehs_2011_wlmax/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2011_wlmax/set', {"min": -20, "max": 5, "step": 1}, 10)
+  mqtt_create_topic(0x4255, 'homeassistant/number/samsung_ehs_2012_wlmin/config', 'temperature', 'Samsung EHS FSV2012 Heating Water Law Min', 'homeassistant/number/samsung_ehs_2012_wlmin/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2012_wlmin/set', {"min": 10, "max": 20, "step": 1}, 10)
+  mqtt_create_topic(0x4256, 'homeassistant/number/samsung_ehs_2021_wl1max/config', 'temperature', 'Samsung EHS FSV2021 Heating Water Out WL1 Temp Max', 'homeassistant/number/samsung_ehs_2021_wl1max/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2021_wl1max/set', {"min": 17, "max": 75, "step": 1}, 10)
+  mqtt_create_topic(0x4257, 'homeassistant/number/samsung_ehs_2022_wl1min/config', 'temperature', 'Samsung EHS FSV2022 Heating Water Out WL1 Temp Min', 'homeassistant/number/samsung_ehs_2022_wl1min/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2022_wl1min/set', {"min": 17, "max": 75, "step": 1}, 10)
+  mqtt_create_topic(0x4258, 'homeassistant/number/samsung_ehs_2031_wl2max/config', 'temperature', 'Samsung EHS FSV2031 Heating Water Out WL2 Temp Max', 'homeassistant/number/samsung_ehs_2031_wl2max/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2031_wl2max/set', {"min": 17, "max": 75, "step": 1}, 10)
+  mqtt_create_topic(0x4259, 'homeassistant/number/samsung_ehs_2032_wl2min/config', 'temperature', 'Samsung EHS FSV2032 Heating Water Out WL2 Temp Min', 'homeassistant/number/samsung_ehs_2032_wl2min/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2032_wl2min/set', {"min": 17, "max": 75, "step": 1}, 10)
   #cooling
-  mqtt_create_topic(0x425A, 'homeassistant/number/samsung_ehs_2051_wlmax/config', 'temperature', 'Samsung EHS FSV2051 Cooling Water Law Max', 'homeassistant/number/samsung_ehs_2051_wlmax/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2051_wlmax/set', {"min": 25, "max": 35, "step": 1})
-  mqtt_create_topic(0x425B, 'homeassistant/number/samsung_ehs_2052_wlmin/config', 'temperature', 'Samsung EHS FSV2052 Cooling Water Law Min', 'homeassistant/number/samsung_ehs_2052_wlmin/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2052_wlmin/set', {"min": 35, "max": 45, "step": 1})
-  mqtt_create_topic(0x425C, 'homeassistant/number/samsung_ehs_2061_wl1max/config', 'temperature', 'Samsung EHS FSV2061 Cooling Water Out WL1 Temp Max', 'homeassistant/number/samsung_ehs_2061_wl1max/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2061_wl1max/set', {"min": 5, "max": 25, "step": 1})
-  mqtt_create_topic(0x425D, 'homeassistant/number/samsung_ehs_2062_wl1min/config', 'temperature', 'Samsung EHS FSV2062 Cooling Water Out WL1 Temp Min', 'homeassistant/number/samsung_ehs_2062_wl1min/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2062_wl1min/set', {"min": 5, "max": 25, "step": 1})
-  mqtt_create_topic(0x425E, 'homeassistant/number/samsung_ehs_2071_wl2max/config', 'temperature', 'Samsung EHS FSV2071 Cooling Water Out WL2 Temp Max', 'homeassistant/number/samsung_ehs_2071_wl2max/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2071_wl2max/set', {"min": 5, "max": 25, "step": 1})
-  mqtt_create_topic(0x425F, 'homeassistant/number/samsung_ehs_2072_wl2min/config', 'temperature', 'Samsung EHS FSV2072 Cooling Water Out WL2 Temp Min', 'homeassistant/number/samsung_ehs_2072_wl2min/state', '°C', FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_2072_wl2min/set', {"min": 5, "max": 25, "step": 1})
+  mqtt_create_topic(0x425A, 'homeassistant/number/samsung_ehs_2051_wlmax/config', 'temperature', 'Samsung EHS FSV2051 Cooling Water Law Max', 'homeassistant/number/samsung_ehs_2051_wlmax/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2051_wlmax/set', {"min": 25, "max": 35, "step": 1}, 10)
+  mqtt_create_topic(0x425B, 'homeassistant/number/samsung_ehs_2052_wlmin/config', 'temperature', 'Samsung EHS FSV2052 Cooling Water Law Min', 'homeassistant/number/samsung_ehs_2052_wlmin/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2052_wlmin/set', {"min": 35, "max": 45, "step": 1}, 10)
+  mqtt_create_topic(0x425C, 'homeassistant/number/samsung_ehs_2061_wl1max/config', 'temperature', 'Samsung EHS FSV2061 Cooling Water Out WL1 Temp Max', 'homeassistant/number/samsung_ehs_2061_wl1max/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2061_wl1max/set', {"min": 5, "max": 25, "step": 1}, 10)
+  mqtt_create_topic(0x425D, 'homeassistant/number/samsung_ehs_2062_wl1min/config', 'temperature', 'Samsung EHS FSV2062 Cooling Water Out WL1 Temp Min', 'homeassistant/number/samsung_ehs_2062_wl1min/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2062_wl1min/set', {"min": 5, "max": 25, "step": 1}, 10)
+  mqtt_create_topic(0x425E, 'homeassistant/number/samsung_ehs_2071_wl2max/config', 'temperature', 'Samsung EHS FSV2071 Cooling Water Out WL2 Temp Max', 'homeassistant/number/samsung_ehs_2071_wl2max/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2071_wl2max/set', {"min": 5, "max": 25, "step": 1}, 10)
+  mqtt_create_topic(0x425F, 'homeassistant/number/samsung_ehs_2072_wl2min/config', 'temperature', 'Samsung EHS FSV2072 Cooling Water Out WL2 Temp Min', 'homeassistant/number/samsung_ehs_2072_wl2min/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2072_wl2min/set', {"min": 5, "max": 25, "step": 1}, 10)
 
   #mixing valve settings
-  mqtt_create_topic(0x40C0, 'homeassistant/number/samsung_ehs_4041_V3V_enabled/config', None, 'Samsung EHS FSV4041 Mixing Valve Enabled', 'homeassistant/number/samsung_ehs_4041_V3V_enabled/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_4041_V3V_enabled/set', {"min": 0, "max": 2, "step": 1})
-  mqtt_create_topic(0x4286, 'homeassistant/number/samsung_ehs_4042_V3V_dt/config', None, 'Samsung EHS FSV4042 Mixing Valve dT Heating', 'homeassistant/number/samsung_ehs_4042_V3V_dt/state', None, FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_4042_V3V_dt/set', {"min": 5, "max": 15, "step": 1})
-  mqtt_create_topic(0x4287, 'homeassistant/number/samsung_ehs_4043_V3V_dt/config', None, 'Samsung EHS FSV4043 Mixing Valve dT Cooling', 'homeassistant/number/samsung_ehs_4043_V3V_dt/state', None, FSVWrite2Div10MQTTHandler, 'homeassistant/number/samsung_ehs_4043_V3V_dt/set', {"min": 5, "max": 15, "step": 1})
-  mqtt_create_topic(0x40C1, 'homeassistant/number/samsung_ehs_4044_V3V_factor/config', None, 'Samsung EHS FSV4044 Mixing Valve Factor', 'homeassistant/number/samsung_ehs_4044_V3V_factor/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_4044_V3V_factor/set', {"min": 1, "max": 5, "step": 1})
-  mqtt_create_topic(0x4288, 'homeassistant/number/samsung_ehs_4045_V3V_interval/config', None, 'Samsung EHS FSV4045 Mixing Valve Interval (minute)', 'homeassistant/number/samsung_ehs_4045_V3V_interval/state', None, FSVWrite2MQTTHandler, 'homeassistant/number/samsung_ehs_4045_V3V_interval/set', {"min": 1, "max": 30, "step": 1})
-  mqtt_create_topic(0x4289, 'homeassistant/number/samsung_ehs_4046_V3V_runtime/config', None, 'Samsung EHS FSV4046 Mixing Valve Running Time (x10 seconds)', 'homeassistant/number/samsung_ehs_4046_V3V_runtime/state', None, FSVWrite2MQTTHandler, 'homeassistant/number/samsung_ehs_4046_V3V_runtime/set', {"min": 6, "max": 24, "step": 3})
-  mqtt_create_topic(0x411a, 'homeassistant/number/samsung_ehs_zone_control/config', None, 'Samsung EHS FSV4061 Zone Control', 'homeassistant/number/samsung_ehs_zone_control/state', None, FSVWrite1MQTTHandler, 'homeassistant/number/samsung_ehs_zone_control/set', {"min": 0, "max": 2, "step": 1})  
+  optmap={"no mixing valve (0)":0, "valve with offset (1)":1, "valve 2 water laws (2)":2}
+  mqtt_create_topic(0x40C0, 'homeassistant/select/samsung_ehs_4041_V3V_enabled/config', None, 'Samsung EHS FSV4041 Mixing Valve Enabled', 'homeassistant/select/samsung_ehs_4041_V3V_enabled/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_4041_V3V_enabled/set', {"options": [*optmap]}, optmap)
+  mqtt_create_topic(0x4286, 'homeassistant/number/samsung_ehs_4042_V3V_dt/config', None, 'Samsung EHS FSV4042 Mixing Valve dT Heating', 'homeassistant/number/samsung_ehs_4042_V3V_dt/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_4042_V3V_dt/set', {"min": 5, "max": 15, "step": 1}, 10)
+  mqtt_create_topic(0x4287, 'homeassistant/number/samsung_ehs_4043_V3V_dt/config', None, 'Samsung EHS FSV4043 Mixing Valve dT Cooling', 'homeassistant/number/samsung_ehs_4043_V3V_dt/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_4043_V3V_dt/set', {"min": 5, "max": 15, "step": 1}, 10)
+  mqtt_create_topic(0x40C1, 'homeassistant/number/samsung_ehs_4044_V3V_factor/config', None, 'Samsung EHS FSV4044 Mixing Valve Factor', 'homeassistant/number/samsung_ehs_4044_V3V_factor/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_4044_V3V_factor/set', {"min": 1, "max": 5, "step": 1})
+  mqtt_create_topic(0x4288, 'homeassistant/number/samsung_ehs_4045_V3V_interval/config', None, 'Samsung EHS FSV4045 Mixing Valve Interval (minute)', 'homeassistant/number/samsung_ehs_4045_V3V_interval/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_4045_V3V_interval/set', {"min": 1, "max": 30, "step": 1})
+  mqtt_create_topic(0x4289, 'homeassistant/number/samsung_ehs_4046_V3V_runtime/config', None, 'Samsung EHS FSV4046 Mixing Valve Running Time (x10 seconds)', 'homeassistant/number/samsung_ehs_4046_V3V_runtime/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_4046_V3V_runtime/set', {"min": 6, "max": 24, "step": 3})
+  optmap={"disabled (0)":0, "enabled (1)":1}
+  mqtt_create_topic(0x411a, 'homeassistant/select/samsung_ehs_zone_control/config', None, 'Samsung EHS FSV4061 Zone Control', 'homeassistant/select/samsung_ehs_zone_control/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_zone_control/set', {"options": [*optmap]}, optmap)
   # Use values from the DHW valve FSV 3071, 0 is room, 1 is tank
-  mqtt_create_topic(0x408b, 'homeassistant/sensor/samsung_ehs_dhw_3way_valve_dir/config', None, 'Samsung EHS DHW Valve Direction Tank', 'homeassistant/sensor/samsung_ehs_dhw_3way_valve_dir/state', None, FSVWrite1MQTTHandler, None)
+  optmap={"0":0, "1":1}
+  mqtt_create_topic(0x408b, 'homeassistant/sensor/samsung_ehs_dhw_3way_valve_dir/config', None, 'Samsung EHS DHW Valve Direction Tank', 'homeassistant/sensor/samsung_ehs_dhw_3way_valve_dir/state', None, FSVStringIntMQTTHandler, None, {"options": [*optmap]}, optmap)
 
   # unknown values to be traced to reverse them
-  mqtt_create_topic(0x4090, 'homeassistant/sensor/samsung_ehs_4090/config', None, 'Samsung EHS 0x4090', 'homeassistant/sensor/samsung_ehs_4090/state', None, Uint8MQTTHandler, None)
-  mqtt_create_topic(0x40b2, 'homeassistant/sensor/samsung_ehs_40b2/config', None, 'Samsung EHS 0x40b2', 'homeassistant/sensor/samsung_ehs_40b2/state', None, Uint8MQTTHandler, None)
+  mqtt_create_topic(0x4090, 'homeassistant/sensor/samsung_ehs_4090/config', None, 'Samsung EHS 0x4090 Air efficiency', 'homeassistant/sensor/samsung_ehs_4090/state', None, FSVWriteMQTTHandler, None)
+  mqtt_create_topic(0x40b2, 'homeassistant/sensor/samsung_ehs_40b2/config', None, 'Samsung EHS 0x40b2', 'homeassistant/sensor/samsung_ehs_40b2/state', None, FSVWriteMQTTHandler, None)
 
 threading.Thread(name="publisher", target=publisher_thread).start()
 if not args.dump_only:

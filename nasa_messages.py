@@ -1,5 +1,6 @@
 import tools
 import os
+import struct 
 
 nasa_message_numbers = [
 [0x0000,  "NASA_IM_MASTER_NOTIFY"],
@@ -176,7 +177,7 @@ nasa_message_numbers = [
 [0x4042,  "NASA_CONTROL_AUTO_CLEAN"],
 [0x4043,  "NASA_CONTROL_SPI"],
 [0x4045,  "NASA_USE_SILENCE"],
-[0x4046,  "ENUM_IN_SILENCE"],
+[0x4046,  "NASA_CONTROL_SILENCE"],
 [0x4047,  "ENUM_IN___"],
 [0x4048,  "ENUM_IN___"],
 [0x404F,  "ENUM_IN___"],
@@ -776,11 +777,107 @@ nasa_message_numbers = [
 [0x408b,  "NASA_DHW_3WAY_DIR"],
 ]
 
+NasaPacketTypes = [
+  "standby", "normal", "gathering", "install", "download"
+]
+NasaPayloadTypes = [
+  "undef", "read", "write", "request", "notification", "response", "ack", "nack"
+]
+
+class NasaPacketParser:
+  def __init__(self):
+    pass
+
+  """
+  Handler parameter is called with severel parameter extracted from the parsed packet
+  handler(source, dest, isInfo, protocolVersion, retryCounter, packetType, payloadType, packetNumber, dataSets)
+  """
+  def parse_nasa(self, p, handler=None):
+    if len(p) < 3+3+1+1+1+1:
+      raise BaseException("Too short NASA packet")
+
+    src = p[0:3]
+    dst = p[3:6]
+    isInfo = (p[6]&0x80)>>7
+    protVersion=(p[6]&0x60)>>5
+    retryCnt=(p[6]&0x18)>>3
+    rfu=(p[6]&0x7)
+    packetType=p[7]>>4
+    payloadType=p[7]&0xF
+    packetNumber = p[8]
+    dsCnt = p[9]
+
+    packetTypStr="unknown"
+    if packetType < len(NasaPacketTypes):
+      packetTypStr=NasaPacketTypes[packetType]
+
+    payloadTypeStr="unknown"
+    if payloadType < len (NasaPayloadTypes):
+      payloadTypeStr=NasaPayloadTypes[payloadType]
+
+    ds = []
+    off=10
+    seenMsgCnt=0
+    for i in range(0, dsCnt):
+      seenMsgCnt+=1
+      kind=(p[off]&0x6)>>1
+      if kind == 0:
+        s = 1
+      elif kind == 1:
+        s = 2
+      elif kind == 2:
+        s = 4
+      elif kind == 3:
+        if dsCnt != 1:
+          raise BaseException("Invalid encoded packet containing a struct: "+tools.bin2hex(p))
+        ds.append([-1, "STRUCTURE", p[off:], tools.bin2hex(p[off:]), p[off:], [p[off:]]])
+        break
+      messageNumber = struct.unpack(">H",p[off: off+2])[0]
+      value = p[off+2:off+2+s]
+      valuehex = tools.bin2hex(value)
+      valuedec = []
+      if s == 1:
+        intval = struct.unpack(">b",value)[0]
+        valuedec.append(intval)
+        if value[0] != 0:
+          valuedec.append('ON')
+        else:
+          valuedec.append('OFF')
+      elif s == 2:
+        intval = struct.unpack(">h",value)[0]
+        valuedec.append(intval)
+        valuedec.append(intval/10.0)
+      elif s == 4:
+        intval = struct.unpack(">i",value)[0]
+        valuedec.append(intval)
+        valuedec.append(intval/10.0)
+      #log.debug(f"  msgnum: {hex(messageNumber)}")
+      #log.debug(f"  content: {value}")
+      try:
+        desc = nasa_message_name(messageNumber)
+      except:
+        desc = "UNSPECIFIED"
+      ds.append([messageNumber, desc, valuehex, value, valuedec])
+      off += 2+s
+
+    if seenMsgCnt != dsCnt:
+      raise BaseException("Not every message processed")
+
+    if handler is not None:
+      handler(source=src, dest=dst, isInfo=isInfo, protocolVersion=protVersion, retryCounter=retryCnt, packetType=packetTypStr, payloadType=payloadTypeStr, packetNumber=packetNumber, dataSets=ds)
+
+def nasa_log_packet(log, src, dst, packetTypStr, payloadTypeStr, packetNumber, dataSets):
+  log.info("src:"+tools.bin2hex(src)+" dst:"+tools.bin2hex(dst)+" type:"+packetTypStr+" ins:"+payloadTypeStr+" nonce:"+hex(packetNumber))
+  for ds in dataSets:
+    if isinstance(ds[2], str):
+      log.info ("  "+hex(ds[0])+" ("+ds[1]+"): "+ds[2])
+    else:
+      log.info ("  "+hex(ds[0])+" ("+ds[1]+"): "+tools.bin2hex(ds[2]))
+
 attributed_address="500000"
 def nasa_set_attributed_address(source="500000"):
   global attributed_address
   attributed_address = source
-
 
 def nasa_message_name(message_number):
   for ns in nasa_message_numbers:
@@ -806,97 +903,49 @@ def resetnonce():
   global nonce
   nonce=0
 
-def nasa_set_u8(intMsgNumber, intvalueu8, source=None):
+def nasa_forge(instruction, msg_value={}, source=None, dest=None):
   if not source:
     global attributed_address
     source = attributed_address
-  dest="B0FF20" # EHS
-  # notifying of the value
-  msgnum= hex(0x10000+intMsgNumber)[3:]
-  val= hex(0x100+intvalueu8)[3:]
-  #request
-  return tools.hex2bin(source+dest+"C013"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
-
-def nasa_set_u16(intMsgNumber, intvalueu16, source=None):
-  if not source:
-    global attributed_address
-    source = attributed_address
-  dest="B0FF20" # EHS
-  # notifying of the value
-  msgnum= hex(0x10000+intMsgNumber)[3:]
-  val= hex(0x10000+intvalueu16)[3:]
-  #request
-  return tools.hex2bin(source+dest+"C013"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
-
-def nasa_write_u8(intMsgNumber, intval, source=None):
-  if not source:
-    global attributed_address
-    source = attributed_address
-  dest="B0FF20" # EHS
-  # notifying of the value
-  msgnum= hex(0x10000+intMsgNumber)[-4:]
-  val= hex(0x100+intval)[-2:]
-  #write
-  return tools.hex2bin(source+dest+"C012"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
-
-def nasa_write_u16(intMsgNumber, intval, source=None):
-  if not source:
-    global attributed_address
-    source = attributed_address
-  dest="B0FF20" # EHS
-  # notifying of the value
-  msgnum= hex(0x10000+intMsgNumber)[-4:]
-  val= hex(0x10000+intval)[-4:]
-  #write
-  return tools.hex2bin(source+dest+"C012"+ hex(0x100+getnonce())[3:]+"01"+msgnum+val)
-
-def nasa_read_u8(intMsgNumber, source=None):
-  if not isinstance(intMsgNumber, list):
-    intMsgNumber = [intMsgNumber]
-  if not source:
-    global attributed_address
-    source = attributed_address  
-  dest="B0FF20" # EHS
-  # notifying of the value
-  msg = ""
+  if not dest:
+    dest="B0FF20" # EHS
+  msg = b''
   count=0
-  for intMsg in intMsgNumber:
-    msg+=hex(0x10000+intMsg)[-4:]+hex(0x1A5)[-2:]
+  for intMsg in msg_value:
+    msg+=struct.pack(">H", intMsg)
+    vallen=(intMsg&0x700)>>8
+    val=msg_value[intMsg]
+    if vallen == 0 or vallen == 1:
+      if val > 127:
+        val = 127
+      if val < -128:
+        val = -128
+      msg+=struct.pack(">b", val)
+    if vallen == 2:
+      if val > 32767:
+        val = 32767
+      if val < -32768:
+        val = -32768
+      msg+=struct.pack(">h", val)
+    if vallen == 4:
+      msg+=struct.pack(">i", val)
     count+=1
-  #write
-  return tools.hex2bin(source+dest+"C011"+ hex(0x100+getnonce())[3:]+hex(0x100+count)[3:]+msg)
+  return tools.hex2bin(source+dest)+struct.pack(">BBBB", 0xC0, instruction&0xFF, getnonce()&0xFF, count&0xFF)+msg
 
-def nasa_read_u16(intMsgNumber, source=None):
-  if not isinstance(intMsgNumber, list):
-    intMsgNumber = [intMsgNumber]
-  if not source:
-    global attributed_address
-    source = attributed_address
-  dest="B0FF20" # EHS
-  # notifying of the value
-  msg = ""
-  count=0
-  for intMsg in intMsgNumber:
-    msg+=hex(0x10000+intMsg)[-4:]+hex(0x1A5A5)[-4:]
-    count+=1
-  #write
-  return tools.hex2bin(source+dest+"C011"+ hex(0x100+getnonce())[3:]+hex(0x100+count)[3:]+msg)
+def nasa_set(intMsgNumber, intvalue, source=None):
+  return nasa_forge(0x13, {intMsgNumber: intvalue}, source)
 
-def nasa_read_u32(intMsgNumber, source=None):
-  if not isinstance(intMsgNumber, list):
-    intMsgNumber = [intMsgNumber]
-  if not source:
-    global attributed_address
-    source = attributed_address
-  dest="B0FF20" # EHS
-  # notifying of the value
-  msg = ""
-  count=0
-  for intMsg in intMsgNumber:
-    msg+=hex(0x10000+intMsg)[-4:]+hex(0x1A5A5A5A5)[-8:]
-    count+=1
-  #write
-  return tools.hex2bin(source+dest+"C011"+ hex(0x100+getnonce())[3:]+hex(0x100+count)[3:]+msg)
+def nasa_write(intMsgNumber, intvalue, source=None):
+  return nasa_forge(0x12, {intMsgNumber: intvalue}, source)
+
+def nasa_read(intMsgNumbers, source=None):
+  ds={}
+  try:
+    for imn in intMsgNumbers:
+      ds[imn] = 0x05A5A5A5
+  except:
+    ds[intMsgNumbers] = 0x05A5A5A5
+  return nasa_forge(0x11, ds, source)
 
 # TYPE: notification
 # on NASA protocol, setting the same value is not the way to inform EHS of the 
@@ -905,142 +954,91 @@ def nasa_read_u32(intMsgNumber, source=None):
 #   instead of setting 4203, 
 #   must set messages 4076 <tempsensorenable=01> 423a <temp=00fa>
 def nasa_set_zone1_temperature(temp, source=None):
-  if not source:
-    global attributed_address
-    source = attributed_address
-  dest="B0FFFF" # EHS
   # notifying of the value
   temp = int(temp*10)
-  #return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"03406F00407601423A"+hex(0x10000+temp)[3:])
-  return tools.hex2bin(source
-                       +dest
-                       +"C014"
-                       +hex(0x100+getnonce())[3:]
-                       +"02"
-                       +"407601"
-                       +"423A"+hex(0x10000+temp)[3:])
+  ds = {}
+  ds[0x4076] = 1
+  ds[0x423A] = temp # processed and reflected in 0x4203
+  #ds[0x4203] = temp IGNORED!
+  return nasa_forge(0x14, ds, source)
 
 # TYPE: notification
 # for Zone 2:
 #   instead of setting 42d4, 
 #   must set messages 4118 <tempsensorenable=01> 42da <temp=00fa>
 def nasa_set_zone2_temperature(temp, source=None):
-  if not source:
-    global attributed_address
-    source = attributed_address
-  dest="B0FFFF" # EHS
   # notifying of the value
   temp = int(temp*10)
-  #return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"03406F0041180142DA"+hex(0x10000+temp)[3:])
-  return tools.hex2bin(source
-                       +dest
-                       +"C014" #notify
-                       +hex(0x100+getnonce())[3:]
-                       +"02"
-                       +"411801"
-                       +"42DA"+hex(0x10000+temp)[3:])
+  ds = {}
+  ds[0x4118] = 1
+  ds[0x42DA] = temp # processed and reflected in 0x42D4
+  #ds[0x42D4] = temp IGNORED!
+  return nasa_forge(0x14, ds, source)
 
 # TYPE: request/ack
 dhw_power_modes = {
-  "ECO": "00",
-  "STANDARD": "01",
-  "POWER": "02",
-  "FORCED": "03",
+  "ECO": 0,
+  "STANDARD": 1,
+  "POWER": 2,
+  "FORCED": 3,
 }
 def nasa_dhw_power(enabled, mode="STANDARD", source=None):
-  if not source:
-    global attributed_address
-    source = attributed_address
-  dest="B0FF20" # EHS
-  # notifying of the value
-  opmode="00"
+  # request
+  opmode=0
   if enabled:
-    opmode = "01"
+    opmode = 1
   if not mode in dhw_power_modes:
     raise BaseException("Invalid mode selected")
   mode = dhw_power_modes[mode]
-  #temp = int(temp*10)
-  #return tools.hex2bin(source+dest+"C013"+hex(0x100+getnonce())[3:]+"034065"+opmode+"4066014235"+hex(0x10000+temp)[3:])
-  return tools.hex2bin(source
-                       +dest
-                       +"C013" #request
-                       +hex(0x100+getnonce())[3:]
-                       +"02"
-                       +"4065"+opmode
-                       +"4066"+mode)
+
+  return nasa_forge(0x13, {0x4065: opmode, 0x4066: mode}, source)
 
 def nasa_set_dhw_reference(ref, source=None):
-  if not source:
-    global attributed_address
-    source = attributed_address
-  dest="B0FF20" # EHS
-  return tools.hex2bin(source
-                       +dest
-                       +"C014" #notify
-                       +hex(0x100+getnonce())[3:]
-                       +"01"
-                       +"406f"+hex(0x100+ref)[3:])
+  return nasa_forge(0x14, {0x406F: ref}, source)
 
 zone_power_modes = {
-  "AUTO": "00",
-  "COOL": "01",
-  "HOT": "04",
+  "AUTO": 0,
+  "COOL": 1,
+  "HOT": 4,
 }
 # TYPE: request/ack
 #default mode is heating
 def nasa_zone_power(enabled=False, zone=1, target_temp=0, mode=None, source=None):
-  if not source:
-    global attributed_address
-    source = attributed_address
-  dest="B0FF20" # EHS
   # prepare temp value
   target_temp = int(target_temp*10)
-  target_temp_hex = hex(0x10000+target_temp)[3:]
-  msgcount=0
-  payload=""
 
-  powerstate="00"
+  powerstate=0
   if enabled:
-    powerstate="01"
+    powerstate=1
 
   if not mode is None:
     if not mode in zone_power_modes:
       raise BaseException("Unsupported mode, check if in zone_power_modes enum")
 
-  msgcount=1
+  ds={}
   if zone == 1:
     # enabled
-    payload +="4000"+ powerstate
+    ds[0x4000] = powerstate
     # mode
     if not mode is None:
-      payload +="4001"+ zone_power_modes[mode]
-      msgcount+=1
+      ds[0x4001] = zone_power_modes[mode]
     if target_temp!=0:
-      # target temp for zone 1
-      payload +="4201"+ target_temp_hex
-      msgcount+=1
+      ds[0x4201] = target_temp
   elif zone == 2:
     # enabled
-    payload +="411e"+ powerstate
+    ds[0x411e] = powerstate
     # mode
     if not mode is None:
-      payload +="4001"+ zone_power_modes[mode]
-      msgcount+=1
+      ds[0x4001] = zone_power_modes[mode]
     if target_temp!=0:
-      # target temp for zone 2
-      payload +="42d6"+ target_temp_hex
-      msgcount+=1
+      ds[0x42d6] = target_temp
   else:
     raise BaseException("Unsupported zone ("+hex(zone)+"), only 1 or 2")
-    
-  return tools.hex2bin(source+dest+"C013"+hex(0x100+getnonce())[3:]+hex(msgcount+0x100)[3:]+payload)
+  return nasa_forge(0x13, ds, source)
 
-def nasa_notify_error(is_master, source=None):
-  if not source:
-    global attributed_address
-    source = attributed_address
-  dest="B0FF20" # EHS
-  return tools.hex2bin(source+dest+"C014"+hex(0x100+getnonce())[3:]+"0102020000")
+def nasa_notify_error(error, source=None):
+  return nasa_forge(0x14, {0x0202: error}, source)
+
 
 #######################################
 #                                     #
@@ -1179,3 +1177,15 @@ def nasa_poke(source=None):
                        +"01"
                        # PNP poke to detect other nodes
                        +"4242FFFF")
+
+# testing
+if __name__ == '__main__':
+  assert(tools.bin2hex(nasa_set(0x4013, 0x10)) == "500000b0ff20c013a501401310")
+  assert(tools.bin2hex(nasa_set(0x4113, 0x54)) == "500000b0ff20c013a601411354")
+  assert(tools.bin2hex(nasa_set(0x4213, 0x5432)) == "500000b0ff20c013a70142135432")
+  assert(tools.bin2hex(nasa_set(0x4413, 0x87654321)) == "500000b0ff20c013a801441387654321")
+  assert(tools.bin2hex(nasa_set_zone1_temperature(25.1)) == "500000b0ff20c014a902407601423a00fb")
+  assert(tools.bin2hex(nasa_set_zone2_temperature(25.7)) == "500000b0ff20c014aa0241180142da0101")
+
+
+
