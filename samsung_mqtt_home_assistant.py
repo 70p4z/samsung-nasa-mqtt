@@ -104,9 +104,11 @@ class MQTTHandler():
     self.mqtt_client = mqtt_client
 
   def publish(self, valueInt):
+    log.info("default nasa handler for 0x" + hex(self.nasa_msgnum))
     self.mqtt_client.publish(self.topic, valueInt)
 
   def action(self, client, userdata, msg):
+    log.info("default mqtt handler for 0x" + hex(self.nasa_msgnum))
     pass
 
   def initread(self):
@@ -125,6 +127,8 @@ class WriteMQTTHandler(MQTTHandler):
     else:
       self.mqtt_client.publish(self.topic, valueInt)
   def action(self, client, userdata, msg):
+    mqttpayload = msg.payload.decode('utf-8')
+    log.info(self.topic + " = " + mqttpayload)
     if not self.can_modify():
       self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
@@ -142,6 +146,8 @@ class FSVWriteMQTTHandler(WriteMQTTHandler):
 
 class SetMQTTHandler(WriteMQTTHandler):
   def action(self, client, userdata, msg):
+    mqttpayload = msg.payload.decode('utf-8')
+    log.info(self.topic + " = " + mqttpayload)
     if not self.can_modify():
       self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
@@ -168,6 +174,8 @@ class StringIntMQTTHandler(WriteMQTTHandler):
       self.mqtt_client.publish(self.topic, "Unknown ("+str(valueInt)+")")
 
   def action(self, client, userdata, msg):
+    mqttpayload = msg.payload.decode('utf-8')
+    log.info(self.topic + " = " + mqttpayload)
     if not nasa_fsv_writable():
       self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
@@ -196,6 +204,7 @@ class ONOFFSetMQTTHandler(SetMQTTHandler):
 class DHWONOFFMQTTHandler(ONOFFSetMQTTHandler):
   def action(self, client, userdata, msg):
     mqttpayload = msg.payload.decode('utf-8')
+    log.info(self.topic + " = " + mqttpayload)
     intval=0
     if mqttpayload == "ON":
       intval=1
@@ -221,6 +230,7 @@ class Zone1IntDiv10MQTTHandler(SetMQTTHandler):
   def action(self, client, userdata, msg):
     global nasa_state
     mqttpayload = msg.payload.decode('utf-8')
+    log.info(self.topic + " = " + mqttpayload)
     self.mqtt_client.publish(self.topic, mqttpayload)
     new_temp = int(float(mqttpayload)*10)
     if nasa_update(0x423A, new_temp):
@@ -231,6 +241,7 @@ class Zone1SwitchMQTTHandler(ONOFFSetMQTTHandler):
   def action(self, client, userdata, msg):
     global nasa_state
     mqttpayload = msg.payload.decode('utf-8')
+    log.info(self.topic + " = " + mqttpayload)
     global pgw
     enabled = mqttpayload == "ON"
     pgw.packet_tx(nasa_zone_power(enabled,1))
@@ -241,6 +252,7 @@ class Zone2IntDiv10MQTTHandler(SetMQTTHandler):
   def action(self, client, userdata, msg):
     global nasa_state
     mqttpayload = msg.payload.decode('utf-8')
+    log.info(self.topic + " = " + mqttpayload)
     self.mqtt_client.publish(self.topic, mqttpayload)
     new_temp = int(float(mqttpayload)*10)
     if nasa_update(0x42DA, new_temp):
@@ -251,6 +263,7 @@ class Zone2SwitchMQTTHandler(ONOFFSetMQTTHandler):
   def action(self, client, userdata, msg):
     global nasa_state
     mqttpayload = msg.payload.decode('utf-8')
+    log.info(self.topic + " = " + mqttpayload)
     global pgw
     enabled = mqttpayload == "ON"
     pgw.packet_tx(nasa_zone_power(enabled,2))
@@ -511,13 +524,13 @@ def mqtt_setup():
   mqtt_create_topic(0x4001, 'homeassistant/select/samsung_ehs_mode/config', None, 'Samsung EHS Mode', 'homeassistant/select/samsung_ehs_mode/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_mode/set', {"options": [*optmap]}, optmap)
 
   mqtt_create_topic(0x4000, 'homeassistant/switch/samsung_ehs_zone1/config', None, 'Samsung EHS Zone1', 'homeassistant/switch/samsung_ehs_zone1/state', None, Zone1SwitchMQTTHandler, 'homeassistant/switch/samsung_ehs_zone1/set')
-  mqtt_create_topic(0x4201, 'homeassistant/number/samsung_ehs_temp_zone1_target/config', 'temperature', 'Samsung EHS Temp Zone1 Target', 'homeassistant/number/samsung_ehs_temp_zone1_target/state', '°C', SetMQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1_target/set', {"min": 16, "max": 28, "step": 0.5}, 10)
-  mqtt_create_topic(0x423A, 'homeassistant/number/samsung_ehs_temp_zone1/config', 'temperature', 'Samsung EHS Temp Zone1', 'homeassistant/number/samsung_ehs_temp_zone1/state', '°C', Zone1IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1/set')
+  mqtt_create_topic(0x4201, 'homeassistant/number/samsung_ehs_temp_zone1_target/config', 'temperature', 'Samsung EHS Zone1 Target', 'homeassistant/number/samsung_ehs_temp_zone1_target/state', '°C', SetMQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1_target/set', {"min": 16, "max": 28, "step": 0.5}, 10)
+  mqtt_create_topic(0x423A, 'homeassistant/number/samsung_ehs_temp_zone1/config', 'temperature', 'Samsung EHS Zone1 Ambient', 'homeassistant/number/samsung_ehs_temp_zone1/state', '°C', Zone1IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone1/set')
   mqtt_create_topic(0x42D8, 'homeassistant/sensor/samsung_ehs_temp_outlet_zone1/config', 'temperature', 'Samsung EHS Temp Outlet Zone1', 'homeassistant/sensor/samsung_ehs_temp_outlet_zone1/state', '°C', SetMQTTHandler, None, None, 10)
   
   mqtt_create_topic(0x411e, 'homeassistant/switch/samsung_ehs_zone2/config', None, 'Samsung EHS Zone2', 'homeassistant/switch/samsung_ehs_zone2/state', None, Zone2SwitchMQTTHandler, 'homeassistant/switch/samsung_ehs_zone2/set')
-  mqtt_create_topic(0x42D6, 'homeassistant/number/samsung_ehs_temp_zone2_target/config', 'temperature', 'Samsung EHS Temp Zone2 Target', 'homeassistant/number/samsung_ehs_temp_zone2_target/state', '°C', SetMQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2_target/set', {"min": 16, "max": 28, "step": 0.5}, 10)
-  mqtt_create_topic(0x42DA, 'homeassistant/number/samsung_ehs_temp_zone2/config', 'temperature', 'Samsung EHS Temp Zone2', 'homeassistant/number/samsung_ehs_temp_zone2/state', '°C', Zone2IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2/set')
+  mqtt_create_topic(0x42D6, 'homeassistant/number/samsung_ehs_temp_zone2_target/config', 'temperature', 'Samsung EHS Zone2 Target', 'homeassistant/number/samsung_ehs_temp_zone2_target/state', '°C', SetMQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2_target/set', {"min": 16, "max": 28, "step": 0.5}, 10)
+  mqtt_create_topic(0x42DA, 'homeassistant/number/samsung_ehs_temp_zone2/config', 'temperature', 'Samsung EHS Zone2 Ambient', 'homeassistant/number/samsung_ehs_temp_zone2/state', '°C', Zone2IntDiv10MQTTHandler, 'homeassistant/number/samsung_ehs_temp_zone2/set')
   mqtt_create_topic(0x42D9, 'homeassistant/sensor/samsung_ehs_temp_outlet_zone2/config', 'temperature', 'Samsung EHS Temp Outlet Zone2', 'homeassistant/sensor/samsung_ehs_temp_outlet_zone2/state', '°C', SetMQTTHandler, None, None, 10)
 
   mqtt_create_topic(0x4235, 'homeassistant/number/samsung_ehs_temp_dhw_target/config', 'temperature', 'Samsung EHS Temp DHW Target', 'homeassistant/number/samsung_ehs_temp_dhw_target/state', '°C', SetMQTTHandler, 'homeassistant/number/samsung_ehs_temp_dhw_target/set', {"min": 35, "max": 70, "step": 1}, 10)
@@ -610,6 +623,8 @@ def mqtt_setup():
   mqtt_create_topic(0x4090, 'homeassistant/sensor/samsung_ehs_4090/config', None, 'Samsung EHS 0x4090 Air efficiency', 'homeassistant/sensor/samsung_ehs_4090/state', None, FSVWriteMQTTHandler, None)
   mqtt_create_topic(0x40b2, 'homeassistant/sensor/samsung_ehs_40b2/config', None, 'Samsung EHS 0x40b2', 'homeassistant/sensor/samsung_ehs_40b2/state', None, FSVWriteMQTTHandler, None)
 
+  mqtt_create_topic(0x4046, 'homeassistant/switch/samsung_ehs_silence_mode/config', None, 'Samsung EHS Silence Mode', 'homeassistant/switch/samsung_ehs_silence_mode/state', None, FSVWriteMQTTHandler, 'homeassistant/switch/samsung_ehs_silence_mode/set')
+  mqtt_create_topic(0x4129, 'homeassistant/switch/samsung_ehs_silence_param/config', None, 'Samsung EHS Silence Parameter', 'homeassistant/switch/samsung_ehs_silence_param/state', None, FSVWriteMQTTHandler, 'homeassistant/switch/samsung_ehs_silence_param/set')
 threading.Thread(name="publisher", target=publisher_thread).start()
 if not args.dump_only:
   threading.Thread(name="mqtt_startup", target=mqtt_startup_thread).start()
