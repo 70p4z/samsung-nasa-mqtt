@@ -411,8 +411,8 @@ def publisher_thread():
             nasa_pnp_check_requested=False
         # detect ASHP reboot and remote controller to execute PNP again
         if nasa_pnp_ended and not nasa_pnp_check_requested and nasa_pnp_time + NASA_PNP_CHECK_INTERVAL < time.time():
-          # request reading of MODEL INFORMATION (expect a reponse with it, not the regular notification)
-          pgw.packet_tx(nasa_read_u16(0x4229))
+          # request reading of ZONE1 TEMP (expect a reponse with it, not the regular notification)
+          pgw.packet_tx(nasa_read(0x4203))
           nasa_pnp_time=time.time()
           nasa_pnp_check_retries=0
           nasa_pnp_check_requested=True
@@ -424,7 +424,7 @@ def publisher_thread():
       log.info("Communication lost!")
       os.kill(os.getpid(), signal.SIGTERM)
 
-    time.sleep(5)
+    time.sleep(15)
 
 def mqtt_startup_thread():
   global mqtt_client
@@ -492,11 +492,11 @@ def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state
 def mqtt_setup():
   mqtt_create_topic(0x202, 'homeassistant/sensor/samsung_ehs_error_code_1/config', None, 'Samsung EHS Error Code 1', 'homeassistant/sensor/samsung_ehs_error_code_1/state', None, MQTTHandler, None)
 
-  mqtt_create_topic(0x4427, 'homeassistant/sensor/samsung_ehs_total_output_power/config', 'energy', 'Samsung EHS Total Output Power', 'homeassistant/sensor/samsung_ehs_total_output_power/state', 'Wh', MQTTHandler, None)
-  mqtt_create_topic(0x8414, 'homeassistant/sensor/samsung_ehs_total_input_power/config', 'energy', 'Samsung EHS Total Input Power', 'homeassistant/sensor/samsung_ehs_total_input_power/state', 'Wh', MQTTHandler, None, {"state_class": "total_increasing"})
+  mqtt_create_topic(0x4427, 'homeassistant/sensor/samsung_ehs_total_output_power/config', 'energy', 'Samsung EHS Total Output Power', 'homeassistant/sensor/samsung_ehs_total_output_power/state', 'W', MQTTHandler, None, {"state_class": "total_increasing"})
+  mqtt_create_topic(0x8414, 'homeassistant/sensor/samsung_ehs_total_input_power/config', 'energy', 'Samsung EHS Total Input Power', 'homeassistant/sensor/samsung_ehs_total_input_power/state', 'W', MQTTHandler, None, {"state_class": "total_increasing"})
   
-  mqtt_create_topic(0x4426, 'homeassistant/sensor/samsung_ehs_current_output_power/config', 'energy', 'Samsung EHS Output Power', 'homeassistant/sensor/samsung_ehs_current_output_power/state', 'Wh', MQTTHandler, None)
-  mqtt_create_topic(0x8413, 'homeassistant/sensor/samsung_ehs_current_input_power/config', 'energy', 'Samsung EHS Input Power', 'homeassistant/sensor/samsung_ehs_current_input_power/state', 'Wh', COPMQTTHandler, None)
+  mqtt_create_topic(0x4426, 'homeassistant/sensor/samsung_ehs_current_output_power/config', 'energy', 'Samsung EHS Output Power', 'homeassistant/sensor/samsung_ehs_current_output_power/state', 'W', MQTTHandler, None)
+  mqtt_create_topic(0x8413, 'homeassistant/sensor/samsung_ehs_current_input_power/config', 'energy', 'Samsung EHS Input Power', 'homeassistant/sensor/samsung_ehs_current_input_power/state', 'W', COPMQTTHandler, None)
   # special value published by the COPMQTTHandler
   mqtt_client.publish('homeassistant/sensor/samsung_ehs_cop/config', 
     payload=json.dumps({"name": "Samsung EHS Operating COP", 
@@ -625,6 +625,7 @@ def mqtt_setup():
 
   mqtt_create_topic(0x4046, 'homeassistant/switch/samsung_ehs_silence_mode/config', None, 'Samsung EHS Silence Mode', 'homeassistant/switch/samsung_ehs_silence_mode/state', None, FSVWriteMQTTHandler, 'homeassistant/switch/samsung_ehs_silence_mode/set')
   mqtt_create_topic(0x4129, 'homeassistant/switch/samsung_ehs_silence_param/config', None, 'Samsung EHS Silence Parameter', 'homeassistant/switch/samsung_ehs_silence_param/state', None, FSVWriteMQTTHandler, 'homeassistant/switch/samsung_ehs_silence_param/set')
+
 threading.Thread(name="publisher", target=publisher_thread).start()
 if not args.dump_only:
   threading.Thread(name="mqtt_startup", target=mqtt_startup_thread).start()
