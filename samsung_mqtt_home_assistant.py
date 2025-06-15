@@ -407,6 +407,10 @@ def publisher_thread():
             if not nasa_message_name(handler.nasa_msgnum) in nasa_state and (isinstance(handler, FSVWriteMQTTHandler) or isinstance(handler, FSVSetMQTTHandler) or isinstance(handler, FSVStringIntMQTTHandler)):
               handler.initread()
               time.sleep(0.1)
+
+      # update water flow target
+      pgw.packet_tx(nasa_read([0x4202]))
+
       if args.nasa_pnp:
         # start PNP
         if not nasa_pnp_ended or (not nasa_pnp_ended and nasa_pnp_time + NASA_PNP_TIMEOUT < time.time()):
