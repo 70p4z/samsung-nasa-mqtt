@@ -144,6 +144,25 @@ class FSVWriteMQTTHandler(WriteMQTTHandler):
   def can_modify(self):
     return nasa_fsv_writable()
 
+class FSVONOFFMQTTHandler(FSVWriteMQTTHandler):
+  def publish(self, valueInt):
+    valueStr = "ON"
+    if valueInt==0:
+      valueStr="OFF"
+    self.mqtt_client.publish(self.topic, valueStr)
+  def action(self, client, userdata, msg):
+    mqttpayload = msg.payload.decode('utf-8')
+    log.info(self.topic + " = " + mqttpayload)
+    if not self.can_modify():
+      self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)])
+      return
+    intval=0
+    if mqttpayload == "ON":
+      intval=1
+    if nasa_update(self.nasa_msgnum, intval):
+      global pgw
+      pgw.packet_tx(nasa_write(self.nasa_msgnum, intval))
+
 class SetMQTTHandler(WriteMQTTHandler):
   def action(self, client, userdata, msg):
     mqttpayload = msg.payload.decode('utf-8')
@@ -623,8 +642,8 @@ def mqtt_setup():
   mqtt_create_topic(0x4090, 'homeassistant/sensor/samsung_ehs_4090/config', None, 'Samsung EHS 0x4090 Air efficiency', 'homeassistant/sensor/samsung_ehs_4090/state', None, FSVWriteMQTTHandler, None)
   mqtt_create_topic(0x40b2, 'homeassistant/sensor/samsung_ehs_40b2/config', None, 'Samsung EHS 0x40b2', 'homeassistant/sensor/samsung_ehs_40b2/state', None, FSVWriteMQTTHandler, None)
 
-  mqtt_create_topic(0x4046, 'homeassistant/switch/samsung_ehs_silence_mode/config', None, 'Samsung EHS Silence Mode', 'homeassistant/switch/samsung_ehs_silence_mode/state', None, FSVWriteMQTTHandler, 'homeassistant/switch/samsung_ehs_silence_mode/set')
-  mqtt_create_topic(0x4129, 'homeassistant/switch/samsung_ehs_silence_param/config', None, 'Samsung EHS Silence Parameter', 'homeassistant/switch/samsung_ehs_silence_param/state', None, FSVWriteMQTTHandler, 'homeassistant/switch/samsung_ehs_silence_param/set')
+  mqtt_create_topic(0x4046, 'homeassistant/switch/samsung_ehs_silence_mode/config', None, 'Samsung EHS Silence Mode', 'homeassistant/switch/samsung_ehs_silence_mode/state', None, FSVONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_silence_mode/set')
+  mqtt_create_topic(0x4129, 'homeassistant/switch/samsung_ehs_silence_param/config', None, 'Samsung EHS Silence Parameter', 'homeassistant/switch/samsung_ehs_silence_param/state', None, FSVONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_silence_param/set')
 
 threading.Thread(name="publisher", target=publisher_thread).start()
 if not args.dump_only:
