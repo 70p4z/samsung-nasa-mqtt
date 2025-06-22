@@ -97,6 +97,7 @@ def nasa_fsv_unlock_mqtt_handler(client, userdata, msg):
     mqtt_client.publish('homeassistant/switch/samsung_ehs_fsv_unlock/state', 'OFF')
     nasa_fsv_unlocked=False
 
+
 class MQTTHandler():
   def __init__(self, mqtt_client, topic, nasa_msgnum):
     self.topic = topic
@@ -133,7 +134,7 @@ class WriteMQTTHandler(MQTTHandler):
       self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
     intval = int(float(msg.payload.decode('utf-8'))*self.multiplier)
-    if nasa_update(self.nasa_msgnum, intval):
+    if nasa_update(self.nasa_msgnum, intval) or True:
       global pgw
       pgw.packet_tx(nasa_write(self.nasa_msgnum, intval))
   def initread(self):
@@ -159,7 +160,7 @@ class FSVONOFFMQTTHandler(FSVWriteMQTTHandler):
     intval=0
     if mqttpayload == "ON":
       intval=1
-    if nasa_update(self.nasa_msgnum, intval):
+    if nasa_update(self.nasa_msgnum, intval) or True:
       global pgw
       pgw.packet_tx(nasa_write(self.nasa_msgnum, intval))
 
@@ -171,7 +172,7 @@ class SetMQTTHandler(WriteMQTTHandler):
       self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
     intval = int(float(msg.payload.decode('utf-8'))*self.multiplier)
-    if nasa_update(self.nasa_msgnum, intval):
+    if nasa_update(self.nasa_msgnum, intval) or True:
       global pgw
       pgw.packet_tx(nasa_set(self.nasa_msgnum, intval))
 
@@ -203,7 +204,7 @@ class StringIntMQTTHandler(WriteMQTTHandler):
     for s in self.map:
       if s == payload:
         valueInt = self.map[s]
-        if nasa_update(self.nasa_msgnum, valueInt):
+        if nasa_update(self.nasa_msgnum, valueInt) or True:
           pgw.packet_tx(nasa_set(self.nasa_msgnum, valueInt))
           break
     else:
@@ -220,6 +221,7 @@ class ONOFFSetMQTTHandler(SetMQTTHandler):
       valueStr="OFF"
     self.mqtt_client.publish(self.topic, valueStr)
 
+
 class DHWONOFFMQTTHandler(ONOFFSetMQTTHandler):
   def action(self, client, userdata, msg):
     mqttpayload = msg.payload.decode('utf-8')
@@ -227,7 +229,7 @@ class DHWONOFFMQTTHandler(ONOFFSetMQTTHandler):
     intval=0
     if mqttpayload == "ON":
       intval=1
-    if nasa_update(self.nasa_msgnum, intval):
+    if nasa_update(self.nasa_msgnum, intval) or True:
       global pgw
       pgw.packet_tx(nasa_dhw_power(intval == 1))
 
@@ -252,7 +254,7 @@ class Zone1IntDiv10MQTTHandler(SetMQTTHandler):
     log.info(self.topic + " = " + mqttpayload)
     self.mqtt_client.publish(self.topic, mqttpayload)
     new_temp = int(float(mqttpayload)*10)
-    if nasa_update(0x423A, new_temp):
+    if nasa_update(0x423A, new_temp) or True:
       global pgw
       pgw.packet_tx(nasa_set_zone1_temperature(float(mqttpayload)))
 
@@ -274,7 +276,7 @@ class Zone2IntDiv10MQTTHandler(SetMQTTHandler):
     log.info(self.topic + " = " + mqttpayload)
     self.mqtt_client.publish(self.topic, mqttpayload)
     new_temp = int(float(mqttpayload)*10)
-    if nasa_update(0x42DA, new_temp):
+    if nasa_update(0x42DA, new_temp) or True:
       global pgw
       pgw.packet_tx(nasa_set_zone2_temperature(float(mqttpayload)))
       
