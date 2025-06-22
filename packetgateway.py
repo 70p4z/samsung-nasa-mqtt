@@ -18,6 +18,9 @@ from nasa_messages import *
 
 from logger import log
 
+# max duration of a receive packet
+LOCK_TIMEOUT_S = 2
+
 def nasa_wrap(p):
   # forge packet
   # NOTE: crc excludes SF / TF and length
@@ -66,15 +69,28 @@ class PacketGateway:
         time.sleep(0.25)
         log.debug("reconnecting")
         self.connect()
+        haslock=False
+        locktimeout=0
         while True:
           #fetch some data
           ready, write, exc = select.select([self.gatewaysocket], [], [], 0.1)
           if len(exc) > 0:
             raise BaseException("Data communication issue")
 
+          if time.time()>locktimeout and haslock:
+            locktimeout=0
+            haslock=False
+            self.seriallock.release()
+
           if not ready or len(ready) == 0 or not ready[0]:
+            # if lock timeout => free lock to perform tx
             # go back to select
             continue 
+
+          if not haslock:
+            haslock=True
+            self.seriallock.acquire()
+            locktimeout=time.time()+LOCK_TIMEOUT_S
 
           #thanks python for that GREAT handling of TX that triggers select to return ready set.
           try:
@@ -113,19 +129,13 @@ class PacketGateway:
               # packet not completely received, wait for more
               break
 
-            # extract packet to be processed
-            p = self.rx[:1 + fields[1] + 1]
-
-            if len(p) != 1+fields[1]+1:
-              log.error("Invalid encoded length: " + tools.bin2hex(p))
-              raise BaseException("Invalid encoded length")
-
-            haslock=False
             try:
-              self.seriallock.acquire()
-              haslock=True
+              # extract packet to be processed
+              p = self.rx[:1 + fields[1] + 1]
               log.info(tools.bin2hex(p))
-
+              if len(p) != 1+fields[1]+1:
+                log.error("Invalid encoded length: " + tools.bin2hex(p))
+                raise BaseException("Invalid encoded length")
               end = struct.unpack_from(">H", p[-3:])
               if p[-1] != 0x34:
                 log.error("Invalid end of packet termination (expected 34): " + tools.bin2hex(p))
@@ -137,15 +147,12 @@ class PacketGateway:
                 log.error("Invalid CRC (expected:"+hex(crc)+", observed:"+hex(end[0])+"): "+ tools.bin2hex(p))
                 raise BaseException("Invalid CRC (expected:"+hex(crc)+", observed:"+hex(end[0])+"): "+ tools.bin2hex(p))
 
-              # create a queue event for the received packet
-              self.seriallock.release()
-              haslock=False
-
               self.rx_event(pdata)
             except:
               traceback.print_exc()
             if haslock:
               self.seriallock.release()
+              haslock = False
             # consume the enqueued packet
             self.rx = self.rx[len(p):]
       except:
