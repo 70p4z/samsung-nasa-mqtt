@@ -182,6 +182,8 @@ class PacketGateway:
       # prepare to wait for ack
       # NOTE: if gateway connection is broken here, then the packet is likely lost.
       try:
+        #prepad to avoid disruption and faster resynch in case messed up byte during transport
+        pp = b'\xFD' * 4 + pp
         self.gatewaysocket.sendall(pp)
         return True
       except:

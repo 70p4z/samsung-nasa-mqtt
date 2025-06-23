@@ -24,7 +24,7 @@ parser.add_argument('--mqtt-port', default="1883", type=auto_int, help="port of 
 parser.add_argument('--serial-host', default="127.0.0.1",help="host to connect the serial interface endpoint (i.e. socat /dev/ttyUSB0,parenb,raw,echo=0,b9600,nonblock,min=0 tcp-listen:7001,reuseaddr,fork )")
 parser.add_argument('--serial-port', default="7001", type=auto_int, help="port to connect the serial interface endpoint")
 parser.add_argument('--nasa-interval', default="30", type=auto_int, help="Interval in seconds to republish MQTT values set from the MQTT side (useful for temperature mainly)")
-parser.add_argument('--nasa-timeout', default="60", type=auto_int, help="Timeout before considering communication fault")
+parser.add_argument('--nasa-timeout', default="120", type=auto_int, help="Timeout before considering communication fault")
 parser.add_argument('--dump-only', action="store_true", help="Request to only dump packets from the NASA link on the console")
 parser.add_argument('--nasa-addr', default="510000", help="Configurable self address to use")
 parser.add_argument('--nasa-pnp', action="store_true", help="Perform Plug and Play when set")
@@ -46,6 +46,7 @@ nasa_pnp_time=0
 nasa_pnp_check_retries=0
 nasa_pnp_ended=False
 nasa_pnp_check_requested=False
+desynch=0
 
 def nasa_update(msgnum, intval):
   try:
@@ -297,6 +298,8 @@ def rx_nasa_handler(*nargs, **kwargs):
   global pgw
   global nasa_pnp_check_requested
   global nasa_pnp_ended
+  global desynch
+  global nasa_state
   last_nasa_rx = time.time()
   packetType = kwargs["packetType"]
   payloadType = kwargs["payloadType"]
@@ -344,9 +347,26 @@ def rx_nasa_handler(*nargs, **kwargs):
       if ( ds[1] == "NASA_IM_MASTER_NOTIFY" and ds[4][0] == 1) or (ds[1] == "NASA_IM_MASTER" and ds[4][0] == 1):
         nasa_state["master_address"] = source
 
+      # check if data is not in synch with cache
+      if payloadType == "notification" and tools.bin2hex(source) == "200000":
+        if ds[0] == 0x4203:
+          # check if zone1 temp reported is the same as the last sent zone1 temp
+          if nasa_message_name(0x423A) in nasa_state and nasa_state[nasa_message_name(0x423A)] == ds[4][0]:
+            # match => check is valid, no need to reperform PNP
+            desynch=0
+          else:
+            desynch+=1
+        if ds[0] == 0x42D4:
+          # check if zone2 temp reported is the same as the last sent zone2 temp
+          if nasa_message_name(0x42DA) in nasa_state and nasa_state[nasa_message_name(0x42DA)] == ds[4][0]:
+            # match => check is valid, no need to reperform PNP
+            desynch=0
+          else:
+            desynch+=1
+
       # detect PNP check's response
       if args.nasa_pnp:
-        if nasa_pnp_ended and nasa_pnp_check_requested and payloadType == "response" and tools.bin2hex(source) == "200000" and ds[0] == 0x4229:
+        if nasa_pnp_ended and nasa_pnp_check_requested and desynch == 0:
           nasa_pnp_check_requested=False
 
       # hold the value indexed by its name, for easier update of mqtt stuff
@@ -381,6 +401,7 @@ def publisher_thread():
   global nasa_pnp_check_retries
   global nasa_pnp_check_requested
   global nasa_pnp_ended
+  global desynch
   # wait until IOs are setup
   time.sleep(10)
   nasa_last_publish = 0
@@ -408,10 +429,15 @@ def publisher_thread():
             handler = mqtt_published_vars[name]
             if not nasa_message_name(handler.nasa_msgnum) in nasa_state and (isinstance(handler, FSVWriteMQTTHandler) or isinstance(handler, FSVSetMQTTHandler) or isinstance(handler, FSVStringIntMQTTHandler)):
               handler.initread()
-              time.sleep(0.1)
+              time.sleep(0.25)
 
       # update water flow target
       pgw.packet_tx(nasa_read([0x4202]))
+
+      #zone temps are not coherent with cached state
+      if desynch >= 4:
+        log.info("Too much desynch assuming communication is lost!")
+        os.kill(os.getpid(), signal.SIGTERM)
 
       if args.nasa_pnp:
         # start PNP
@@ -449,7 +475,7 @@ def publisher_thread():
       log.info("Communication lost!")
       os.kill(os.getpid(), signal.SIGTERM)
 
-    time.sleep(15)
+    time.sleep(10)
 
 def mqtt_startup_thread():
   global mqtt_client
