@@ -351,18 +351,20 @@ def rx_nasa_handler(*nargs, **kwargs):
       if payloadType == "notification" and tools.bin2hex(source) == "200000":
         if ds[0] == 0x4203:
           # check if zone1 temp reported is the same as the last sent zone1 temp
-          if nasa_message_name(0x423A) in nasa_state and nasa_state[nasa_message_name(0x423A)] == ds[4][0]:
-            # match => check is valid, no need to reperform PNP
-            desynch=0
-          else:
-            desynch+=1
+          if nasa_message_name(0x423A) in nasa_state:
+            if nasa_state[nasa_message_name(0x423A)] == ds[4][0]:
+              # match => check is valid, no need to reperform PNP
+              desynch=0
+            else:
+              desynch+=1
         if ds[0] == 0x42D4:
           # check if zone2 temp reported is the same as the last sent zone2 temp
-          if nasa_message_name(0x42DA) in nasa_state and nasa_state[nasa_message_name(0x42DA)] == ds[4][0]:
-            # match => check is valid, no need to reperform PNP
-            desynch=0
-          else:
-            desynch+=1
+          if nasa_message_name(0x42DA) in nasa_state:
+            if nasa_state[nasa_message_name(0x42DA)] == ds[4][0]:
+              # match => check is valid, no need to reperform PNP
+              desynch=0
+            else:
+              desynch+=1
 
       # detect PNP check's response
       if args.nasa_pnp:

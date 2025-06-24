@@ -21,6 +21,9 @@ from logger import log
 # max duration of a receive packet
 LOCK_TIMEOUT_S = 2
 
+#at most 2 seconds to receive a full packet!
+NASA_PACKET_TIMEOUT_S = 2
+
 def nasa_wrap(p):
   # forge packet
   # NOTE: crc excludes SF / TF and length
@@ -65,23 +68,30 @@ class PacketGateway:
 
   # simple process meant to fetch packets from the gateway and push them to the processing queue
   def _rx_main(self):
+    self.connect()
     while True:
       try:
         time.sleep(0.25)
-        log.debug("reconnecting")
-        self.connect()
+        log.info("restart packet rx loop")
         haslock=False
+        if len(self.rx) >= 1:
+          self.rx = self.rx[1:]
         locktimeout=0
+        packettimeout=0
         while True:
           #fetch some data
           ready, write, exc = select.select([self.gatewaysocket], [], [], 0.1)
           if len(exc) > 0:
             raise BaseException("Data communication issue")
 
-          if time.time()>locktimeout and haslock:
+          if locktimeout != 0 and time.time()>locktimeout and haslock:
+            log.error("Lock timeout")
             locktimeout=0
             haslock=False
             self.seriallock.release()
+
+          if packettimeout != 0 and time.time()>packettimeout:
+            raise BaseException("Packet reception timeout: " + tools.bin2hex(self.rx))
 
           if not ready or len(ready) == 0 or not ready[0]:
             # if lock timeout => free lock to perform tx
@@ -99,6 +109,9 @@ class PacketGateway:
           except socket.error as e:
             if e.args[0] == errno.EWOULDBLOCK:
               continue
+            if e.args[0] == errno.ENOTCONN or e.args[0] == errno.ECONNREFUSED:
+              log.info("Communication problem!")
+              os.kill(os.getpid(), signal.SIGTERM)
             raise e
 
           log.debug("received: " + tools.bin2hex(content))
@@ -114,6 +127,9 @@ class PacketGateway:
             # not enough data for a packet
             if len(self.rx) < 1+2:
               break
+            #engage packet timeout
+            if packettimeout == 0:
+              packettimeout = time.time() + NASA_PACKET_TIMEOUT_S
 
             log.debug("buffer length= " + hex(len(self.rx)))
             log.debug("buffer " + tools.bin2hex(self.rx))
@@ -122,7 +138,7 @@ class PacketGateway:
 
             if fields[0] != 0x32:
               log.debug("invalid prefix, consume it")
-              if len(self.rx) > 1:
+              if len(self.rx) >= 1:
                 self.rx = self.rx[1:]
               continue
 
@@ -135,29 +151,33 @@ class PacketGateway:
               p = self.rx[:1 + fields[1] + 1]
               log.info(tools.bin2hex(p))
               if len(p) != 1+fields[1]+1:
-                log.error("Invalid encoded length: " + tools.bin2hex(p))
-                raise BaseException("Invalid encoded length")
+                raise BaseException("Invalid encoded length: "+  tools.bin2hex(p))
               end = struct.unpack_from(">H", p[-3:])
               if p[-1] != 0x34:
-                log.error("Invalid end of packet termination (expected 34): " + tools.bin2hex(p))
                 raise BaseException("Invalid end of packet termination (expected 34): " + tools.bin2hex(p))
               pdata=p[3:-3]
               log.debug("crc computed against "+tools.bin2hex(pdata))
               crc=binascii.crc_hqx(pdata, 0)
               if crc != end[0]:
-                log.error("Invalid CRC (expected:"+hex(crc)+", observed:"+hex(end[0])+"): "+ tools.bin2hex(p))
                 raise BaseException("Invalid CRC (expected:"+hex(crc)+", observed:"+hex(end[0])+"): "+ tools.bin2hex(p))
-
+              packettimeout=0
               self.rx_event(pdata)
             except BaseException as e:
               log.error(e, exc_info=True)
             if haslock:
               self.seriallock.release()
               haslock = False
+              locktimeout=0
+              packettimeout=0
             # consume the enqueued packet
             self.rx = self.rx[len(p):]
       except BaseException as e:
         log.error(e, exc_info=True)
+      finally:
+        if haslock:
+          self.seriallock.release()
+          haslock = False
+    log.info("exiting rx loop thread")
 
   # Method to send a packet to the HW gateway
   def packet_tx(self, p, force=False):
@@ -187,6 +207,7 @@ class PacketGateway:
       except BaseException as e:
         log.error(e, exc_info=True)
         return False
+      log.debug("finished sending")
 
   def unclogg(self):
     with self.seriallock:
