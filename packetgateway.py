@@ -56,8 +56,9 @@ class PacketGateway:
         # mark non blocking after connect, to ensure synchronous connect event
         self.gatewaysocket.setblocking(0)
         self.rx=b''
-      except:
-        traceback.print_exc()
+      except BaseException as e:
+        log.error(e, exc_info=True)
+      log.info("connected")
 
   def start(self):
     threading.Thread(name="packetgateway", target=self._rx_main).start()
@@ -148,18 +149,15 @@ class PacketGateway:
                 raise BaseException("Invalid CRC (expected:"+hex(crc)+", observed:"+hex(end[0])+"): "+ tools.bin2hex(p))
 
               self.rx_event(pdata)
-            except:
-              traceback.print_exc()
+            except BaseException as e:
+              log.error(e, exc_info=True)
             if haslock:
               self.seriallock.release()
               haslock = False
             # consume the enqueued packet
             self.rx = self.rx[len(p):]
-      except:
-        traceback.print_exc()
-        # auto reconnect
-        pass
-
+      except BaseException as e:
+        log.error(e, exc_info=True)
 
   # Method to send a packet to the HW gateway
   def packet_tx(self, p, force=False):
@@ -186,8 +184,8 @@ class PacketGateway:
         pp = b'\xFD' * 4 + pp
         self.gatewaysocket.sendall(pp)
         return True
-      except:
-        traceback.print_exc()
+      except BaseException as e:
+        log.error(e, exc_info=True)
         return False
 
   def unclogg(self):
@@ -195,8 +193,8 @@ class PacketGateway:
       while True:
         try:
           self.gatewaysocket.sendall(b'\xFD')
-        except:
-          traceback.print_exc()
+        except BaseException as e:
+          log.error(e, exc_info=True)
         #fetch some data?
         ready, write, exc = select.select([self.gatewaysocket], [], [], 0.1)
         if len(exc) > 0:

@@ -59,8 +59,8 @@ def nasa_update(msgnum, intval):
         pub=True
     nasa_state[nasa_name] = intval
     return pub
-  except:
-    traceback.print_exc()
+  except BaseException as e:
+    log.error(e, exc_info=True)
   return False
 
 def nasa_reset_state():
@@ -81,8 +81,8 @@ def nasa_payload_mqtt_handler(client, userdata, msg):
     mqtt_client.publish('homeassistant/text/samsung_ehs_payload/state', mqttpayload)
     # will prepend start, compute and append crc and stop
     pgw.packet_tx(binpayload)
-  except:
-    traceback.print_exc()
+  except BaseException as e:
+    log.error(e, exc_info=True)
 
 def nasa_fsv_writable():
   global nasa_fsv_unlocked
@@ -379,8 +379,8 @@ def rx_nasa_handler(*nargs, **kwargs):
         mqtt_p_v.publish(ds[4][0])
 
       mqtt_client.publish('homeassistant/sensor/samsung_ehs/nasa_'+hex(ds[0]), payload=ds[2], retain=True)
-    except:
-      traceback.print_exc()
+    except BaseException as e:
+      log.error(e, exc_info=True)
 
 def rx_event_nasa(p):
   log.debug("packet received "+ tools.bin2hex(p))
@@ -410,7 +410,13 @@ def publisher_thread():
     nasa_set_attributed_address(args.nasa_addr)
 
   while True:
+    log.info("publisher iteration")
     try:
+      # handle communication timeout
+      if args.nasa_timeout > 0 and last_nasa_rx + args.nasa_timeout < time.time():
+        log.info("Communication lost!")
+        os.kill(os.getpid(), signal.SIGTERM)
+
       # wait until pnp is done before requesting values
       if nasa_last_publish + args.nasa_interval < time.time():
         if nasa_pnp_ended or not args.nasa_pnp:
@@ -468,13 +474,8 @@ def publisher_thread():
           nasa_pnp_check_retries=0
           nasa_pnp_check_requested=True
 
-    except:
-      traceback.print_exc()
-    # handle communication timeout
-    if args.nasa_timeout > 0 and last_nasa_rx + args.nasa_timeout < time.time():
-      log.info("Communication lost!")
-      os.kill(os.getpid(), signal.SIGTERM)
-
+    except BaseException as e:
+      log.error(e, exc_info=True)
     time.sleep(10)
 
 def mqtt_startup_thread():
@@ -497,8 +498,8 @@ def mqtt_startup_thread():
       mqtt_client.loop_start()
       mqtt_setup()
       break
-    except:
-      traceback.print_exc()
+    except BaseException as e:
+      log.error(e, exc_info=True)
     time.sleep(1) 
 
 def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state, unit_name, type_handler, topic_set=None, desc_base={}, handler_parameter=None):
