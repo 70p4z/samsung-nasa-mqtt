@@ -780,6 +780,7 @@ nasa_message_numbers = [
 NasaPacketTypes = [
   "standby", "normal", "gathering", "install", "download"
 ]
+#  0x0     0x1     0x2      0x3        0x4             0x5         0x6    0x7
 NasaPayloadTypes = [
   "undef", "read", "write", "request", "notification", "response", "ack", "nack"
 ]
