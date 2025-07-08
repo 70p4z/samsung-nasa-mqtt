@@ -47,6 +47,55 @@ nasa_pnp_check_retries=0
 nasa_pnp_ended=False
 nasa_pnp_check_requested=False
 desynch=0
+nasa_update_timeout_checks = []
+
+class NASAUpdateTimeoutCheck():
+  def __init__ (self, updatecommand, _msgnum, expectedintvalue, timeout_s=0):
+    self._msgnum = _msgnum
+    self.updatecommand = updatecommand
+    self.expectedintvalue = expectedintvalue
+    self.timeout_time = 0
+    self.timeout_s = timeout_s
+    self.reset_timeout()
+
+  def timeout(self):
+    to = self.timeout_s > 0 and time.time() > self.timeout_time
+    log.debug("NASA update timeout " + hex(self._msgnum) + ": " + str(to))
+    return to 
+
+  def reset_timeout(self):
+    if self.timeout_s > 0:
+      self.timeout_time = time.time() + self.timeout_s
+
+  def check(self):
+    global nasa_state
+    nasa_name = nasa_message_name(self._msgnum)
+    if not nasa_name in nasa_state:
+      log.debug("NASA check " + hex(self._msgnum) + " not present")
+      return False
+    log.debug("NASA check " + hex(self._msgnum) + ": " + hex(nasa_state[nasa_name]) + " =?= " + hex(self.expectedintvalue) )
+    return nasa_state[nasa_name] == self.expectedintvalue
+
+  def msgnum(self):
+    return self._msgnum
+
+  def command(self):
+    return self.updatecommand
+
+def nasa_write_with_check_command(command, msgnum, expectedintvalue, timeout_s=5.0):
+  # avoid multiple commands with same target message num, only keep the last
+  for nutc in nasa_update_timeout_checks:
+    if nutc.msgnum() == msgnum:
+      nasa_update_timeout_checks.remove(nutc)
+      break
+
+  # send command over the bus
+  pgw.packet_tx(command)
+  # remove the value from the nasa cache
+  if nasa_message_name(msgnum) in nasa_state:
+    del nasa_state[nasa_message_name(msgnum)]
+  # schedule a check to watch the value if it evolved
+  nasa_update_timeout_checks.append(NASAUpdateTimeoutCheck(command, msgnum, expectedintvalue, timeout_s))
 
 def nasa_update(msgnum, intval):
   try:
@@ -73,6 +122,7 @@ def nasa_reset_state():
     nasa_state[nasa_message_name(0x423A)] = args.nasa_default_zone_temp*10
     nasa_state[nasa_message_name(0x42DA)] = args.nasa_default_zone_temp*10
 
+
 def nasa_payload_mqtt_handler(client, userdata, msg):
   global pgw
   mqttpayload = msg.payload.decode('utf-8')
@@ -97,7 +147,6 @@ def nasa_fsv_unlock_mqtt_handler(client, userdata, msg):
   else:
     mqtt_client.publish('homeassistant/switch/samsung_ehs_fsv_unlock/state', 'OFF')
     nasa_fsv_unlocked=False
-
 
 class MQTTHandler():
   def __init__(self, mqtt_client, topic, nasa_msgnum):
@@ -136,8 +185,7 @@ class WriteMQTTHandler(MQTTHandler):
       return
     intval = int(float(msg.payload.decode('utf-8'))*self.multiplier)
     if nasa_update(self.nasa_msgnum, intval) or True:
-      global pgw
-      pgw.packet_tx(nasa_write(self.nasa_msgnum, intval))
+      nasa_write_with_check_command(nasa_write(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
   def initread(self):
     global pgw
     pgw.packet_tx(nasa_read(self.nasa_msgnum))
@@ -162,8 +210,7 @@ class FSVONOFFMQTTHandler(FSVWriteMQTTHandler):
     if mqttpayload == "ON":
       intval=1
     if nasa_update(self.nasa_msgnum, intval) or True:
-      global pgw
-      pgw.packet_tx(nasa_write(self.nasa_msgnum, intval))
+      nasa_write_with_check_command(nasa_write(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
 
 class SetMQTTHandler(WriteMQTTHandler):
   def action(self, client, userdata, msg):
@@ -175,7 +222,7 @@ class SetMQTTHandler(WriteMQTTHandler):
     intval = int(float(msg.payload.decode('utf-8'))*self.multiplier)
     if nasa_update(self.nasa_msgnum, intval) or True:
       global pgw
-      pgw.packet_tx(nasa_set(self.nasa_msgnum, intval))
+      nasa_write_with_check_command(nasa_set(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
 
 class FSVSetMQTTHandler(SetMQTTHandler):
   def can_modify(self):
@@ -206,7 +253,7 @@ class StringIntMQTTHandler(WriteMQTTHandler):
       if s == payload:
         valueInt = self.map[s]
         if nasa_update(self.nasa_msgnum, valueInt) or True:
-          pgw.packet_tx(nasa_set(self.nasa_msgnum, valueInt))
+          nasa_write_with_check_command(nasa_write(self.nasa_msgnum, valueInt), self.nasa_msgnum, valueInt)
           break
     else:
       log.error("ignoring '" +self.topic + "' value: '" + payload + "'")
@@ -232,7 +279,7 @@ class DHWONOFFMQTTHandler(ONOFFSetMQTTHandler):
       intval=1
     if nasa_update(self.nasa_msgnum, intval) or True:
       global pgw
-      pgw.packet_tx(nasa_dhw_power(intval == 1))
+      nasa_write_with_check_command(nasa_dhw_power(intval == 1), 0x4065, intval)
 
 class COPMQTTHandler(MQTTHandler):
   def publish(self, valueInt):
@@ -256,17 +303,17 @@ class Zone1IntDiv10MQTTHandler(SetMQTTHandler):
     self.mqtt_client.publish(self.topic, mqttpayload)
     new_temp = int(float(mqttpayload)*10)
     if nasa_update(0x423A, new_temp) or True:
-      global pgw
-      pgw.packet_tx(nasa_set_zone1_temperature(float(mqttpayload)))
+      nasa_write_with_check_command(nasa_set_zone1_temperature(float(mqttpayload)), 0x4203, new_temp)
 
 class Zone1SwitchMQTTHandler(ONOFFSetMQTTHandler):
   def action(self, client, userdata, msg):
     global nasa_state
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
-    global pgw
-    enabled = mqttpayload == "ON"
-    pgw.packet_tx(nasa_zone_power(enabled,1))
+    intval=0
+    if mqttpayload == "ON":
+      intval=1
+    nasa_write_with_check_command(nasa_zone_power(intval==1,1), 0x4000, intval)
 
 class Zone2IntDiv10MQTTHandler(SetMQTTHandler):
   def __init__(self, mqtt_client, topic, nasa_msgnum):
@@ -278,8 +325,7 @@ class Zone2IntDiv10MQTTHandler(SetMQTTHandler):
     self.mqtt_client.publish(self.topic, mqttpayload)
     new_temp = int(float(mqttpayload)*10)
     if nasa_update(0x42DA, new_temp) or True:
-      global pgw
-      pgw.packet_tx(nasa_set_zone2_temperature(float(mqttpayload)))
+      nasa_write_with_check_command(nasa_set_zone2_temperature(float(mqttpayload)), 0x42D4, new_temp)
       
 class Zone2SwitchMQTTHandler(ONOFFSetMQTTHandler):
   def action(self, client, userdata, msg):
@@ -288,7 +334,10 @@ class Zone2SwitchMQTTHandler(ONOFFSetMQTTHandler):
     log.info(self.topic + " = " + mqttpayload)
     global pgw
     enabled = mqttpayload == "ON"
-    pgw.packet_tx(nasa_zone_power(enabled,2))
+    val = 0
+    if enabled:
+      val = 1
+    nasa_write_with_check_command(nasa_zone_power(enabled,2), 0x411e, val)
 
 #handler(source, dest, isInfo, protocolVersion, retryCounter, packetType, payloadType, packetNumber, dataSets)
 def rx_nasa_handler(*nargs, **kwargs):
@@ -412,7 +461,7 @@ def publisher_thread():
     nasa_set_attributed_address(args.nasa_addr)
 
   while True:
-    log.info("publisher iteration")
+    log.debug("publisher iteration")
     try:
       # handle communication timeout
       if args.nasa_timeout > 0 and last_nasa_rx + args.nasa_timeout < time.time():
@@ -439,8 +488,17 @@ def publisher_thread():
               handler.initread()
               time.sleep(0.25)
 
-      # update water flow target
-      pgw.packet_tx(nasa_read([0x4202]))
+      nasa_update_timeout_checks_rm=[]
+      for nutc in nasa_update_timeout_checks:
+        if nutc.timeout():
+          # resend
+          pgw.packet_tx(nutc.command())
+          nutc.reset_timeout()
+        if nutc.check():
+          nasa_update_timeout_checks_rm.append(nutc)
+      # avoid mod while iterated in previous loop
+      for nutc in nasa_update_timeout_checks_rm:
+        nasa_update_timeout_checks.remove(nutc)
 
       #zone temps are not coherent with cached state
       if desynch >= 4:
@@ -478,7 +536,7 @@ def publisher_thread():
 
     except BaseException as e:
       log.error(e, exc_info=True)
-    time.sleep(10)
+    time.sleep(1)
 
 def mqtt_startup_thread():
   global mqtt_client
