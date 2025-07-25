@@ -128,7 +128,7 @@ def nasa_payload_mqtt_handler(client, userdata, msg):
   mqttpayload = msg.payload.decode('utf-8')
   try:
     binpayload = tools.hex2bin(mqttpayload)
-    mqtt_client.publish('homeassistant/text/samsung_ehs_payload/state', mqttpayload)
+    mqtt_client.publish('homeassistant/text/samsung_ehs_payload/state', mqttpayload, retain=True)
     # will prepend start, compute and append crc and stop
     pgw.packet_tx(binpayload)
   except BaseException as e:
@@ -142,10 +142,10 @@ def nasa_fsv_unlock_mqtt_handler(client, userdata, msg):
   global nasa_fsv_unlocked
   mqttpayload = msg.payload.decode('utf-8')
   if mqttpayload == "ON":
-    mqtt_client.publish('homeassistant/switch/samsung_ehs_fsv_unlock/state', 'ON')
+    mqtt_client.publish('homeassistant/switch/samsung_ehs_fsv_unlock/state', 'ON', retain=True)
     nasa_fsv_unlocked=True
   else:
-    mqtt_client.publish('homeassistant/switch/samsung_ehs_fsv_unlock/state', 'OFF')
+    mqtt_client.publish('homeassistant/switch/samsung_ehs_fsv_unlock/state', 'OFF', retain=True)
     nasa_fsv_unlocked=False
 
 class MQTTHandler():
@@ -156,7 +156,7 @@ class MQTTHandler():
 
   def publish(self, valueInt):
     log.info("default nasa handler for 0x" + hex(self.nasa_msgnum))
-    self.mqtt_client.publish(self.topic, valueInt)
+    self.mqtt_client.publish(self.topic, valueInt, retain=True)
 
   def action(self, client, userdata, msg):
     log.info("default mqtt handler for 0x" + hex(self.nasa_msgnum))
@@ -174,14 +174,14 @@ class WriteMQTTHandler(MQTTHandler):
     self.multiplier = float(multiplier)
   def publish(self, valueInt):
     if self.multiplier > 1:
-      self.mqtt_client.publish(self.topic, valueInt/self.multiplier)
+      self.mqtt_client.publish(self.topic, valueInt/self.multiplier, retain=True)
     else:
-      self.mqtt_client.publish(self.topic, valueInt)
+      self.mqtt_client.publish(self.topic, valueInt, retain=True)
   def action(self, client, userdata, msg):
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
     if not self.can_modify():
-      self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)])
+      self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)], retain=True)
       return
     intval = int(float(msg.payload.decode('utf-8'))*self.multiplier)
     if nasa_update(self.nasa_msgnum, intval) or True:
@@ -199,12 +199,12 @@ class FSVONOFFMQTTHandler(FSVWriteMQTTHandler):
     valueStr = "ON"
     if valueInt==0:
       valueStr="OFF"
-    self.mqtt_client.publish(self.topic, valueStr)
+    self.mqtt_client.publish(self.topic, valueStr, retain=True)
   def action(self, client, userdata, msg):
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
     if not self.can_modify():
-      self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)])
+      self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)], retain=True)
       return
     intval=0
     if mqttpayload == "ON":
@@ -217,7 +217,7 @@ class SetMQTTHandler(WriteMQTTHandler):
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
     if not self.can_modify():
-      self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)])
+      self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)], retain=True)
       return
     intval = int(float(msg.payload.decode('utf-8'))*self.multiplier)
     if nasa_update(self.nasa_msgnum, intval) or True:
@@ -236,10 +236,10 @@ class StringIntMQTTHandler(WriteMQTTHandler):
   def publish(self, valueInt):
     for s in self.map:
       if self.map[s] == valueInt:
-        self.mqtt_client.publish(self.topic, s)  
+        self.mqtt_client.publish(self.topic, s, retain=True)  
         break
     else:
-      self.mqtt_client.publish(self.topic, "Unknown ("+str(valueInt)+")")
+      self.mqtt_client.publish(self.topic, "Unknown ("+str(valueInt)+")", retain=True)
 
   def action(self, client, userdata, msg):
     mqttpayload = msg.payload.decode('utf-8')
@@ -267,7 +267,7 @@ class ONOFFSetMQTTHandler(SetMQTTHandler):
     valueStr = "ON"
     if valueInt==0:
       valueStr="OFF"
-    self.mqtt_client.publish(self.topic, valueStr)
+    self.mqtt_client.publish(self.topic, valueStr, retain=True)
 
 
 class DHWONOFFMQTTHandler(ONOFFSetMQTTHandler):
@@ -283,13 +283,13 @@ class DHWONOFFMQTTHandler(ONOFFSetMQTTHandler):
 
 class COPMQTTHandler(MQTTHandler):
   def publish(self, valueInt):
-    self.mqtt_client.publish(self.topic, valueInt)
+    self.mqtt_client.publish(self.topic, valueInt, retain=True)
     # compute COP and publish the value as well
     # round at 2 digits
     try:
       if valueInt == 0:
         valueInt = 14
-      self.mqtt_client.publish(self.topic + "_cop", int(nasa_state[nasa_message_name(0x4426)]*100 / valueInt)/100)
+      self.mqtt_client.publish(self.topic + "_cop", int(nasa_state[nasa_message_name(0x4426)]*100 / valueInt)/100, retain=True)
     except:
       pass
 
@@ -300,7 +300,7 @@ class Zone1IntDiv10MQTTHandler(SetMQTTHandler):
     global nasa_state
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
-    self.mqtt_client.publish(self.topic, mqttpayload)
+    self.mqtt_client.publish(self.topic, mqttpayload, retain=True)
     new_temp = int(float(mqttpayload)*10)
     if nasa_update(0x423A, new_temp) or True:
       nasa_write_with_check_command(nasa_set_zone1_temperature(float(mqttpayload)), 0x4203, new_temp)
@@ -322,7 +322,7 @@ class Zone2IntDiv10MQTTHandler(SetMQTTHandler):
     global nasa_state
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
-    self.mqtt_client.publish(self.topic, mqttpayload)
+    self.mqtt_client.publish(self.topic, mqttpayload, retain=True)
     new_temp = int(float(mqttpayload)*10)
     if nasa_update(0x42DA, new_temp) or True:
       nasa_write_with_check_command(nasa_set_zone2_temperature(float(mqttpayload)), 0x42D4, new_temp)
@@ -709,7 +709,9 @@ def mqtt_setup():
   mqtt_create_topic(0x4099, 'homeassistant/number/samsung_ehs_3041_dhw_disinfect/config', None, 'Samsung EHS FSV3041 DHW Disinfection', 'homeassistant/number/samsung_ehs_3041_dhw_disinfect/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3041_dhw_disinfect/set', {"min": 0, "max": 1, "step": 1})
   mqtt_create_topic(0x409B, 'homeassistant/number/samsung_ehs_3051_dhw_forced_timer_off/config', None, 'Samsung EHS FSV3051 DHW Forced Timer OFF', 'homeassistant/number/samsung_ehs_3051_dhw_forced_timer_off/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3051_dhw_forced_timer_off/set', {"min": 0, "max": 1, "step": 1}) 
   mqtt_create_topic(0x426C, 'homeassistant/number/samsung_ehs_3052_dhw_forced_timer_off_duration/config', None, 'Samsung EHS FSV3052 DHW Forced Timer Duration', 'homeassistant/number/samsung_ehs_3052_dhw_forced_timer_off_duration/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3052_dhw_forced_timer_off_duration/set', {"min": 0, "max": 30, "step": 1})
-  mqtt_create_topic(0x4093, 'homeassistant/number/samsung_ehs_2041_wl/config', None, 'Samsung EHS FSV2041 Water Law', 'homeassistant/number/samsung_ehs_2041_wl/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2041_wl/set', {"min": 1, "max": 2, "step": 1})
+  optmap={"floor heating(1)":1, "fan coil unit or radiator (2)":2}
+  mqtt_create_topic(0x4093, 'homeassistant/number/samsung_ehs_2041_wl/config', None, 'Samsung EHS FSV2041 Water Law', 'homeassistant/number/samsung_ehs_2041_wl/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_2041_wl/set', {"options": [*optmap]}, optmap)
+
   #heating
   mqtt_create_topic(0x4254, 'homeassistant/number/samsung_ehs_2011_wlmax/config', 'temperature', 'Samsung EHS FSV2011 Heating Water Law Max', 'homeassistant/number/samsung_ehs_2011_wlmax/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2011_wlmax/set', {"min": -20, "max": 5, "step": 1}, 10)
   mqtt_create_topic(0x4255, 'homeassistant/number/samsung_ehs_2012_wlmin/config', 'temperature', 'Samsung EHS FSV2012 Heating Water Law Min', 'homeassistant/number/samsung_ehs_2012_wlmin/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_2012_wlmin/set', {"min": 10, "max": 20, "step": 1}, 10)
