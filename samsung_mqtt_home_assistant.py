@@ -224,6 +224,13 @@ class SetMQTTHandler(WriteMQTTHandler):
       global pgw
       nasa_write_with_check_command(nasa_set(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
 
+class ONOFFSetMQTTHandler(SetMQTTHandler):
+  def publish(self, valueInt):
+    valueStr = "ON"
+    if valueInt==0:
+      valueStr="OFF"
+    self.mqtt_client.publish(self.topic, valueStr, retain=True)
+
 class FSVSetMQTTHandler(SetMQTTHandler):
   def can_modify(self):
     return nasa_fsv_writable()
@@ -261,14 +268,6 @@ class StringIntMQTTHandler(WriteMQTTHandler):
 class FSVStringIntMQTTHandler(StringIntMQTTHandler):
   def can_modify(self):
     return nasa_fsv_writable()
-
-class ONOFFSetMQTTHandler(SetMQTTHandler):
-  def publish(self, valueInt):
-    valueStr = "ON"
-    if valueInt==0:
-      valueStr="OFF"
-    self.mqtt_client.publish(self.topic, valueStr, retain=True)
-
 
 class DHWONOFFMQTTHandler(ONOFFSetMQTTHandler):
   def action(self, client, userdata, msg):
@@ -689,7 +688,7 @@ def mqtt_setup():
   mqtt_client.publish(topic_state, 'OFF')
 
   # FSV values
-  optmap={"only ambient (1)":1, "thermo off -> pump off (2)":2, "thermo off -> pump on (3)":3, "thermo off -> 70% pump on (4)":4}
+  optmap={"only ambient (1)":1, "wl + thermo off -> pump off (2)":2, "wl + thermo off -> pump on (3)":3, "wl + thermo off -> 30% pump on (4)":4}
   mqtt_create_topic(0x4127, 'homeassistant/select/samsung_ehs_2093_tempctrl/config', None, 'Samsung EHS FSV2093 Temp Control', 'homeassistant/select/samsung_ehs_2093_tempctrl/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_2093_tempctrl/set', {"options": [*optmap]}, optmap)
   optmap={"no inverter pump (0)":0, "inverter pump use 100% (1)":1, "inverter pump use 70% (2)":2}
   mqtt_create_topic(0x40C2, 'homeassistant/select/samsung_ehs_4051_inv_pump_ctrl/config', None, 'Samsung EHS FSV4051 Inverter Pump Control', 'homeassistant/select/samsung_ehs_4051_inv_pump_ctrl/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_4051_inv_pump_ctrl/set', {"options": [*optmap]}, optmap)
@@ -706,8 +705,8 @@ def mqtt_setup():
   mqtt_create_topic(0x4265, 'homeassistant/number/samsung_ehs_3026_dhw_sh_max_sh_time/config', None, 'Samsung EHS FSV3026 DHW+SH Max Heating Duration', 'homeassistant/number/samsung_ehs_3026_dhw_sh_max_sh_time/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3026_dhw_sh_max_sh_time/set', {"min": 30, "max": 600, "step": 30})
   optmap={"no booster (0)":0, "booster used (1)":1}
   mqtt_create_topic(0x4098, 'homeassistant/select/samsung_ehs_3031_dhw_booster_ctrl/config', None, 'Samsung EHS FSV3031 DHW Booster Control', 'homeassistant/select/samsung_ehs_3031_dhw_booster_ctrl/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_3031_dhw_booster_ctrl/set', {"options": [*optmap]}, optmap)
-  mqtt_create_topic(0x4099, 'homeassistant/number/samsung_ehs_3041_dhw_disinfect/config', None, 'Samsung EHS FSV3041 DHW Disinfection', 'homeassistant/number/samsung_ehs_3041_dhw_disinfect/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3041_dhw_disinfect/set', {"min": 0, "max": 1, "step": 1})
-  mqtt_create_topic(0x409B, 'homeassistant/number/samsung_ehs_3051_dhw_forced_timer_off/config', None, 'Samsung EHS FSV3051 DHW Forced Timer OFF', 'homeassistant/number/samsung_ehs_3051_dhw_forced_timer_off/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3051_dhw_forced_timer_off/set', {"min": 0, "max": 1, "step": 1}) 
+  mqtt_create_topic(0x4099, 'homeassistant/switch/samsung_ehs_3041_dhw_disinfect/config', None, 'Samsung EHS FSV3041 DHW Disinfection', 'homeassistant/switch/samsung_ehs_3041_dhw_disinfect/state', None, FSVONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_3041_dhw_disinfect/set')
+  mqtt_create_topic(0x409B, 'homeassistant/switch/samsung_ehs_3051_dhw_forced_timer_off/config', None, 'Samsung EHS FSV3051 DHW Forced Timer OFF', 'homeassistant/switch/samsung_ehs_3051_dhw_forced_timer_off/state', None, FSVONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_3051_dhw_forced_timer_off/set') 
   mqtt_create_topic(0x426C, 'homeassistant/number/samsung_ehs_3052_dhw_forced_timer_off_duration/config', None, 'Samsung EHS FSV3052 DHW Forced Timer Duration', 'homeassistant/number/samsung_ehs_3052_dhw_forced_timer_off_duration/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_3052_dhw_forced_timer_off_duration/set', {"min": 0, "max": 30, "step": 1})
   optmap={"floor heating(1)":1, "fan coil unit or radiator (2)":2}
   mqtt_create_topic(0x4093, 'homeassistant/select/samsung_ehs_2041_wl/config', None, 'Samsung EHS FSV2041 Water Law', 'homeassistant/select/samsung_ehs_2041_wl/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_2041_wl/set', {"options": [*optmap]}, optmap)
