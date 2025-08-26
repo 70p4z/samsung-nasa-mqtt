@@ -16,7 +16,7 @@ RUN mkdir -p /samsung_nasa_link
 #RUN git clone https://github.com/70p4z/samsung-nasa-mqtt /samsung_nasa_link 
 COPY *.py *.sh requirements.txt /samsung_nasa_link/
 
-RUN pip --break-system-packages install -r /samsung_nasa_link/requirements.txt
+RUN pip install --break-system-packages -r /samsung_nasa_link/requirements.txt
 RUN chmod a+x /samsung_nasa_link/startup_docker.sh
 
 CMD [ "/samsung_nasa_link/startup_docker.sh" ]
