@@ -8,9 +8,12 @@ cd $(dirname $(readlink -f $0))
 #serial=/dev/serial/by-id/usb-0483_5740-if00
 serial=/dev/serial/by-id/*Samsung_NASA_Link*
 
+echo "Connecting to Samsung NASA over: $serial"
+
 socat $serial,raw,echo=0,nonblock,min=0,b9600,parenb tcp-listen:7001,reuseaddr &
 socat_pid=$!
 
 #ARGS=--dump-only 
+echo "Additional run arguments: $ARGS $*"
 python3 samsung_mqtt_home_assistant.py $ARGS $*
 kill -9 $socat_pid
