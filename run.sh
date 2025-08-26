@@ -12,5 +12,5 @@ socat $serial,raw,echo=0,nonblock,min=0,b9600,parenb tcp-listen:7001,reuseaddr &
 socat_pid=$!
 
 #ARGS=--dump-only 
-python3 samsung_mqtt_home_assistant.py $ARGS
+python3 samsung_mqtt_home_assistant.py $ARGS $*
 kill -9 $socat_pid

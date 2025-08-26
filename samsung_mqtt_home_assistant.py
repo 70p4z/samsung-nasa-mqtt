@@ -19,7 +19,7 @@ def auto_int(x):
   return int(x, 0)
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--mqtt-host', default="192.168.0.4", help="host to connect to the MQTT broker")
+parser.add_argument('--mqtt-host', default="localhost", help="host to connect to the MQTT broker")
 parser.add_argument('--mqtt-port', default="1883", type=auto_int, help="port of the MQTT broker")
 parser.add_argument('--serial-host', default="127.0.0.1",help="host to connect the serial interface endpoint (i.e. socat /dev/ttyUSB0,parenb,raw,echo=0,b9600,nonblock,min=0 tcp-listen:7001,reuseaddr,fork )")
 parser.add_argument('--serial-port', default="7001", type=auto_int, help="port to connect the serial interface endpoint")
