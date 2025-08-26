@@ -6,7 +6,8 @@ cd $(dirname $(readlink -f $0))
 #serial=/dev/serial/by-id/usb-Freesquet_Connect_0000-if00
 #serial=/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A600JLJ7-if00-port0
 #serial=/dev/serial/by-id/usb-0483_5740-if00
-serial=/dev/serial/by-id/*Samsung_NASA_Link*
+#serial=/dev/serial/by-id/*Samsung_NASA_Link*
+serial=`ls /dev/serial/by-id/*Samsung_NASA_Link* | grep usb`
 
 echo "Connecting to Samsung NASA over: $serial"
 
