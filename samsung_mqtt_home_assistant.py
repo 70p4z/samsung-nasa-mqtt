@@ -21,6 +21,9 @@ def auto_int(x):
 parser = argparse.ArgumentParser()
 parser.add_argument('--mqtt-host', default="localhost", help="host to connect to the MQTT broker")
 parser.add_argument('--mqtt-port', default="1883", type=auto_int, help="port of the MQTT broker")
+parser.add_argument('--mqtt-username', help="username to connect to the MQTT broker")
+parser.add_argument('--mqtt-password', type=auto_int, help="password of the MQTT broker")
+parser.add_argument('--mqtt-tls', action="store_true", help="If the MQTT broker requires TLS connections")
 parser.add_argument('--serial-host', default="127.0.0.1",help="host to connect the serial interface endpoint (i.e. socat /dev/ttyUSB0,parenb,raw,echo=0,b9600,nonblock,min=0 tcp-listen:7001,reuseaddr,fork )")
 parser.add_argument('--serial-port', default="7001", type=auto_int, help="port to connect the serial interface endpoint")
 parser.add_argument('--nasa-interval', default="30", type=auto_int, help="Interval in seconds to republish MQTT values set from the MQTT side (useful for temperature mainly)")
@@ -554,6 +557,10 @@ def mqtt_startup_thread():
 
   mqtt_client = mqtt.Client(clean_session=True)
   mqtt_client.on_connect=on_connect
+  if args.mqtt_tls:
+    mqtt_client.tls_set()
+  if args.mqtt_username and args.mqtt_password:
+    mqtt_client.username_pw_set(username=args.mqtt_username, password=args.mqtt_password)
   # initial connect may fail if mqtt server is not running
   # post power outage, it may occur the mqtt server is unreachable until
   # after the current script is executed
