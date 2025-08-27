@@ -475,14 +475,21 @@ def publisher_thread():
       if nasa_last_publish + args.nasa_interval < time.time():
         if nasa_pnp_ended or not args.nasa_pnp:
           nasa_last_publish = time.time()
-          pgw.packet_tx(nasa_notify_error(0))
-          pgw.packet_tx(nasa_set_dhw_reference(0))
+          global_write_done=False
           # publish zone 1 and 2 values toward nasa (periodic keep alive)
           zone1_temp_name = nasa_message_name(0x423A) # don't use value for the EHS, but from sensors instead
           if zone1_temp_name in nasa_state:
+            if not global_write_done:
+              pgw.packet_tx(nasa_notify_error(0))
+              pgw.packet_tx(nasa_set_dhw_reference(0))
+              global_write_done=True
             pgw.packet_tx(nasa_set_zone1_temperature(float(int(nasa_state[zone1_temp_name]))/10))
           zone2_temp_name = nasa_message_name(0x42DA) # don't use value for the EHS, but from sensors instead
           if zone2_temp_name in nasa_state:
+            if not global_write_done:
+              pgw.packet_tx(nasa_notify_error(0))
+              pgw.packet_tx(nasa_set_dhw_reference(0))
+              global_write_done=True
             pgw.packet_tx(nasa_set_zone2_temperature(float(int(nasa_state[zone2_temp_name]))/10))
 
           for name in mqtt_published_vars:
