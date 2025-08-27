@@ -27,14 +27,14 @@ Just execute the samsung_mqtt_home_assistant.py script after tweaking its values
 
 * Install the MQTT Mosquitto Broker addons (from official HA builtin repository)
 
-* Run the following commands once connected to the HAOS supervisor in the SSH shell:
+* Run the following commands once connected to the HAOS supervisor in the SSH shell (login as root is required):
 ``` r
 cd /tmp
 curl -o samsung_nasa.tar.gz -OL https://github.com/70p4z/samsung-nasa-mqtt/archive/refs/heads/main.tar.gz
 tar zxvf samsung_nasa.tar.gz 
 cd samsung-nasa-mqtt-main
 ```
-* Tweak the startup_docker.sh to modify the mqtt username and password fields to match your mosquitto configuration (either HA user/pass or another explicitely setup in the mosquitto configuration tab).
+* Tweak the /tmp/samsung-nasa-mqtt-main/startup_docker.sh to modify the mqtt username and password fields to match your mosquitto configuration (either HA user/pass or another explicitely setup in the mosquitto configuration tab).
 
 * Lastly run the initialization command, which will register and run the docker container and should create samsung's related entities once the code runs correctly
 ``` r
