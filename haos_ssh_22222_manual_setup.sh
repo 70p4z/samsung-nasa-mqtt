@@ -1,6 +1,10 @@
 #!/bin/sh
 # fetch current running arch
 BUILD_ARCH=`cat /etc/lfs-release | grep SUPERVISOR_ARCH |cut -f2 -d=`
+if [ -z "$BUILD_ARCH" ]
+then
+	BUILD_ARCH=`cat /etc/os-release | grep SUPERVISOR_ARCH |cut -f2 -d=`
+fi
 # build image
 docker build --build-arg BUILD_ARCH=$BUILD_ARCH --no-cache -t samsung_nasa_image .
 # delete and create privileged container with access to serial ports
