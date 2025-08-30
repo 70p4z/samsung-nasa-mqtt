@@ -28,9 +28,10 @@ parser.add_argument('--serial-host', default="127.0.0.1",help="host to connect t
 parser.add_argument('--serial-port', default="7001", type=auto_int, help="port to connect the serial interface endpoint")
 parser.add_argument('--nasa-interval', default="30", type=auto_int, help="Interval in seconds to republish MQTT values set from the MQTT side (useful for temperature mainly)")
 parser.add_argument('--nasa-timeout', default="120", type=auto_int, help="Timeout before considering communication fault")
-parser.add_argument('--dump-only', action="store_true", help="Request to only dump packets from the NASA link on the console")
+parser.add_argument('--promiscious', action="store_true", help="Request to only dump packets from the NASA link on the console, don't interp packets")
 parser.add_argument('--nasa-addr', default="510000", help="Configurable self address to use")
 parser.add_argument('--nasa-pnp', action="store_true", help="Perform Plug and Play when set")
+parser.add_argument('--nasa-mute', action="store_true", help="Ensure no NASA message is transmitted, only dump and interp received packets (interact with MQTT unidirectionally)")
 parser.add_argument('--nasa-default-zone-temp', help="Set given default temperature when MQTT restart or communication is lost or when PNP is timeout", type=auto_int)
 args = parser.parse_args()
 
@@ -376,7 +377,7 @@ def rx_nasa_handler(*nargs, **kwargs):
     log.info("ignoring packet instruction")
     return
 
-  if args.dump_only:
+  if args.promiscious:
     return
 
   if args.nasa_pnp:
@@ -440,7 +441,7 @@ def rx_event_nasa(p):
   parser.parse_nasa(p, rx_nasa_handler)
 
 #todo: make that parametrized
-pgw = packetgateway.PacketGateway(args.serial_host, args.serial_port, rx_event=rx_event_nasa, rxonly=args.dump_only)
+pgw = packetgateway.PacketGateway(args.serial_host, args.serial_port, rx_event=rx_event_nasa, rxonly= ( args.promiscious or args.nasa_mute ) )
 parser = packetgateway.NasaPacketParser()
 pgw.start()
 #ensure gateway is available and publish mqtt is possible when receving values
@@ -475,22 +476,20 @@ def publisher_thread():
       if nasa_last_publish + args.nasa_interval < time.time():
         if nasa_pnp_ended or not args.nasa_pnp:
           nasa_last_publish = time.time()
-          global_write_done=False
-          # publish zone 1 and 2 values toward nasa (periodic keep alive)
           zone1_temp_name = nasa_message_name(0x423A) # don't use value for the EHS, but from sensors instead
-          if zone1_temp_name in nasa_state:
-            if not global_write_done:
-              pgw.packet_tx(nasa_notify_error(0))
-              pgw.packet_tx(nasa_set_dhw_reference(0))
-              global_write_done=True
-            pgw.packet_tx(nasa_set_zone1_temperature(float(int(nasa_state[zone1_temp_name]))/10))
           zone2_temp_name = nasa_message_name(0x42DA) # don't use value for the EHS, but from sensors instead
+          if zone1_temp_name in nasa_state or zone2_temp_name in nasa_state:
+            pgw.packet_tx(nasa_notify_error(0))
+            time.sleep(0.25)
+            pgw.packet_tx(nasa_set_ehs_temp_reference(0))
+            time.sleep(0.25)
+          # publish zone 1 and 2 values toward nasa (periodic keep alive)
+          if zone1_temp_name in nasa_state:
+            pgw.packet_tx(nasa_set_zone1_temperature(float(int(nasa_state[zone1_temp_name]))/10))
+            time.sleep(0.25)
           if zone2_temp_name in nasa_state:
-            if not global_write_done:
-              pgw.packet_tx(nasa_notify_error(0))
-              pgw.packet_tx(nasa_set_dhw_reference(0))
-              global_write_done=True
             pgw.packet_tx(nasa_set_zone2_temperature(float(int(nasa_state[zone2_temp_name]))/10))
+            time.sleep(0.25)
 
           for name in mqtt_published_vars:
             handler = mqtt_published_vars[name]
@@ -762,7 +761,7 @@ def mqtt_setup():
   mqtt_create_topic(0x4129, 'homeassistant/switch/samsung_ehs_silence_param/config', None, 'Samsung EHS Silence Parameter', 'homeassistant/switch/samsung_ehs_silence_param/state', None, FSVONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_silence_param/set')
 
 threading.Thread(name="publisher", target=publisher_thread).start()
-if not args.dump_only:
+if not args.promiscious:
   threading.Thread(name="mqtt_startup", target=mqtt_startup_thread).start()
 
 log.info("-----------------------------------------------------------------")

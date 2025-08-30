@@ -994,7 +994,7 @@ def nasa_dhw_power(enabled, mode="STANDARD", source=None):
 
   return nasa_forge(0x13, {0x4065: opmode, 0x4066: mode}, source)
 
-def nasa_set_dhw_reference(ref, source=None):
+def nasa_set_ehs_temp_reference(ref, source=None):
   return nasa_forge(0x14, {0x406F: ref}, source)
 
 zone_power_modes = {
