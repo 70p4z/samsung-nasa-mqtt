@@ -8,6 +8,11 @@ cd $(dirname $(readlink -f $0))
 #serial=/dev/serial/by-id/usb-0483_5740-if00
 #serial=/dev/serial/by-id/*Samsung_NASA_Link*
 serial=`ls /dev/serial/by-id/*Samsung_NASA_Link* | grep usb`
+if [ -z "$serial" ]
+then
+	#use the first USB serial adapter value
+	serial=`ls /dev/ttyACM* |head -n1` 
+fi
 
 echo "Connecting to Samsung NASA over: $serial"
 
