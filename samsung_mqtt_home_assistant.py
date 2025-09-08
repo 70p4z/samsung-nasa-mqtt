@@ -29,7 +29,7 @@ parser.add_argument('--serial-port', default="7001", type=auto_int, help="port t
 parser.add_argument('--nasa-interval', default="30", type=auto_int, help="Interval in seconds to republish MQTT values set from the MQTT side (useful for temperature mainly)")
 parser.add_argument('--nasa-timeout', default="120", type=auto_int, help="Timeout before considering communication fault")
 parser.add_argument('--promiscious', action="store_true", help="Request to only dump packets from the NASA link on the console, don't interp packets")
-parser.add_argument('--nasa-addr', default="510000", help="Configurable self address to use")
+parser.add_argument('--nasa-addr', default="520000", help="Configurable self address to use")
 parser.add_argument('--nasa-pnp', action="store_true", help="Perform Plug and Play when set")
 parser.add_argument('--nasa-mute', action="store_true", help="Ensure no NASA message is transmitted, only dump and interp received packets (interact with MQTT unidirectionally)")
 parser.add_argument('--nasa-default-zone-temp', help="Set given default temperature when MQTT restart or communication is lost or when PNP is timeout", type=auto_int)
