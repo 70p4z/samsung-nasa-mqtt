@@ -1,10 +1,27 @@
 #!/bin/sh
+BUILD_ARCH=$1
 # fetch current running arch
-BUILD_ARCH=`cat /etc/lfs-release | grep SUPERVISOR_ARCH |cut -f2 -d=`
+if [ -z "$BUILD_ARCH" ]
+then
+	BUILD_ARCH=`cat /etc/lfs-release | grep SUPERVISOR_ARCH |cut -f2 -d=`
+fi
 if [ -z "$BUILD_ARCH" ]
 then
 	BUILD_ARCH=`cat /etc/os-release | grep SUPERVISOR_ARCH |cut -f2 -d=`
 fi
+# ask for arch when not provided
+if [ -z "$BUILD_ARCH" ]
+then
+	echo "Please type the architecture to use (amongst armhf, armv7, aarch64, amd64, i386)"
+	read BUILD_ARCH
+fi
+if [ -z "$BUILD_ARCH" ]
+then
+	echo "No valid architecture provided/found"
+	echo "possible values: armhf, armv7, aarch64, amd64, i386"
+	exit -1
+fi
+
 # build image
 docker build --build-arg BUILD_ARCH=$BUILD_ARCH --no-cache -t samsung_nasa_image .
 # delete and create privileged container with access to serial ports
