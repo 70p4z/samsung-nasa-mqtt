@@ -626,8 +626,8 @@ def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state
 def mqtt_setup():
   mqtt_create_topic(0x202, 'homeassistant/sensor/samsung_ehs_error_code_1/config', None, 'Error Code 1', 'homeassistant/sensor/samsung_ehs_error_code_1/state', None, MQTTHandler, None)
 
-  mqtt_create_topic(0x4427, 'homeassistant/sensor/samsung_ehs_total_output_power/config', 'energy', 'Total Output Power', 'homeassistant/sensor/samsung_ehs_total_output_power/state', 'W', MQTTHandler, None, {"state_class": "total_increasing"})
-  mqtt_create_topic(0x8414, 'homeassistant/sensor/samsung_ehs_total_input_power/config', 'energy', 'Total Input Power', 'homeassistant/sensor/samsung_ehs_total_input_power/state', 'W', MQTTHandler, None, {"state_class": "total_increasing"})
+  mqtt_create_topic(0x4427, 'homeassistant/sensor/samsung_ehs_total_output_power/config', 'energy', 'Total Output Power', 'homeassistant/sensor/samsung_ehs_total_output_power/state', 'Wh', MQTTHandler, None, {"state_class": "total_increasing"})
+  mqtt_create_topic(0x8414, 'homeassistant/sensor/samsung_ehs_total_input_power/config', 'energy', 'Total Input Power', 'homeassistant/sensor/samsung_ehs_total_input_power/state', 'Wh', MQTTHandler, None, {"state_class": "total_increasing"})
   
   mqtt_create_topic(0x4426, 'homeassistant/sensor/samsung_ehs_current_output_power/config', 'energy', 'Output Power', 'homeassistant/sensor/samsung_ehs_current_output_power/state', 'W', MQTTHandler, None)
   mqtt_create_topic(0x8413, 'homeassistant/sensor/samsung_ehs_current_input_power/config', 'energy', 'Input Power', 'homeassistant/sensor/samsung_ehs_current_input_power/state', 'W', COPMQTTHandler, None)
