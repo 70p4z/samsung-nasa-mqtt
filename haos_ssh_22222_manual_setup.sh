@@ -13,6 +13,7 @@ fi
 if [ -z "$BUILD_ARCH" ]
 then
 	echo "Please type the architecture to use (amongst armhf, armv7, aarch64, amd64, i386)"
+	echo "If you're having troubles with aarch64, please use armhf instead"
 	read BUILD_ARCH
 fi
 if [ -z "$BUILD_ARCH" ]
@@ -23,7 +24,7 @@ then
 fi
 
 # build image
-docker build --build-arg BUILD_ARCH=$BUILD_ARCH --no-cache -t samsung_nasa_image .
+docker build --build-arg BUILD_ARCH=$BUILD_ARCH --progress=plain --no-cache -t samsung_nasa_image .
 # delete and create privileged container with access to serial ports
 docker stop samsung_nasa 2>&1
 docker container rm samsung_nasa 2>&1
