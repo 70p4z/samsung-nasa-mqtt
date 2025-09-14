@@ -479,11 +479,11 @@ def publisher_thread():
           nasa_last_publish = time.time()
           zone1_temp_name = nasa_message_name(0x423A) # don't use value for the EHS, but from sensors instead
           zone2_temp_name = nasa_message_name(0x42DA) # don't use value for the EHS, but from sensors instead
-          if zone1_temp_name in nasa_state or zone2_temp_name in nasa_state:
-            pgw.packet_tx(nasa_notify_error(0))
-            time.sleep(0.25)
-            pgw.packet_tx(nasa_set_ehs_temp_reference(0))
-            time.sleep(0.25)
+          # if zone1_temp_name in nasa_state or zone2_temp_name in nasa_state:
+            # pgw.packet_tx(nasa_notify_error(0))
+            # time.sleep(0.25)
+            # pgw.packet_tx(nasa_set_ehs_temp_reference(0))
+            # time.sleep(0.25)
           # publish zone 1 and 2 values toward nasa (periodic keep alive)
           if zone1_temp_name in nasa_state:
             pgw.packet_tx(nasa_set_zone1_temperature(float(int(nasa_state[zone1_temp_name]))/10))
@@ -697,7 +697,7 @@ def mqtt_setup():
   mqtt_client.publish('homeassistant/switch/samsung_ehs_fsv_unlock/config', 
     payload=json.dumps({'command_topic':topic_set,
                         'state_topic':topic_state,
-                        'name':'FSV Unlock'}), 
+                        'name': args.nasa_mqtt_prefix + ' FSV Unlock'}), 
     retain=True)
   # relock by default
   global nasa_fsv_unlocked
