@@ -221,6 +221,27 @@ class FSVONOFFMQTTHandler(FSVWriteMQTTHandler):
     if nasa_update(self.nasa_msgnum, intval) or True:
       nasa_write_with_check_command(nasa_write(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
 
+class FSVFreqLimitMQTTHandler(FSVWriteMQTTHandler):
+  def publish(self, valueInt):
+    enabled=valueInt//0x100
+    limit=valueInt&0xFF
+    valueStr = "0"
+    if enabled:
+      valueStr=str(limit)
+    self.mqtt_client.publish(self.topic, valueStr, retain=True)
+  def action(self, client, userdata, msg):
+    mqttpayload = msg.payload.decode('utf-8')
+    log.info(self.topic + " = " + mqttpayload)
+    if not self.can_modify():
+      if self.nasa_msgnum in nasa_message_name:
+        self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
+      return
+    intval=int(mqttpayload, 0)
+    if intval >= 50 and intval <= 150:
+      intval=0x100+(intval&0xFF)
+    if nasa_update(self.nasa_msgnum, intval) or True:
+      nasa_write_with_check_command(nasa_write(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
+
 class SetMQTTHandler(WriteMQTTHandler):
   def action(self, client, userdata, msg):
     mqttpayload = msg.payload.decode('utf-8')
