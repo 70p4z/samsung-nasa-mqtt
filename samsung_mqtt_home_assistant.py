@@ -764,6 +764,12 @@ def mqtt_setup():
   mqtt_create_topic(0x4046, 'homeassistant/switch/samsung_ehs_silence_mode/config', None, 'Silence Mode', 'homeassistant/switch/samsung_ehs_silence_mode/state', None, FSVONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_silence_mode/set')
   mqtt_create_topic(0x4129, 'homeassistant/switch/samsung_ehs_silence_param/config', None, 'Silence Parameter', 'homeassistant/switch/samsung_ehs_silence_param/state', None, FSVONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_silence_param/set')
 
+  mqtt_create_topic(0x40A7, 'homeassistant/switch/samsung_ehs_5051_fr_control/config', None, 'FSV5051 FR control', 'homeassistant/switch/samsung_ehs_5051_fr_control/state', None, FSVONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_5051_fr_control/set')
+  mqtt_create_topic(0x42F1, 'homeassistant/number/samsung_ehs_fr_limit/config', None, 'Frequency Ratio Limit', 'homeassistant/number/samsung_ehs_fr_limit/state', None, FSVFreqLimitMQTTHandler, 'homeassistant/number/samsung_ehs_fr_limit/set', {"min": 0, "max": 150, "step": 10})
+
+  optmap={"Ambient (0)":0, "Water Flow (1)":1}
+  mqtt_create_topic(0x406F, 'homeassistant/select/samsung_ehs_temp_ref/config', None, 'Temperature Reference', 'homeassistant/select/samsung_ehs_temp_ref/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_temp_ref/set', {"options": [*optmap]}, optmap)
+
 threading.Thread(name="publisher", target=publisher_thread).start()
 if not args.promiscious:
   threading.Thread(name="mqtt_startup", target=mqtt_startup_thread).start()
