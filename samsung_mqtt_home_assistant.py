@@ -709,7 +709,7 @@ def mqtt_setup():
   mqtt_create_topic(0x4127, 'homeassistant/select/samsung_ehs_2093_tempctrl/config', None, 'FSV2093 Temp Control', 'homeassistant/select/samsung_ehs_2093_tempctrl/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_2093_tempctrl/set', {"options": [*optmap]}, optmap)
   optmap={"no inverter pump (0)":0, "inverter pump use 100% (1)":1, "inverter pump use 70% (2)":2}
   mqtt_create_topic(0x40C2, 'homeassistant/select/samsung_ehs_4051_inv_pump_ctrl/config', None, 'FSV4051 Inverter Pump Control', 'homeassistant/select/samsung_ehs_4051_inv_pump_ctrl/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_4051_inv_pump_ctrl/set', {"options": [*optmap]}, optmap)
-  mqtt_create_topic(0x428A, 'homeassistant/number/samsung_ehs_4052_dt_target/config', 'temperature', 'FSV4052 dT Target', 'homeassistant/number/samsung_ehs_4052_dt_target/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_4052_dt_target/set', {"min": 2, "max": 8, "step": 1}, 10)
+  mqtt_create_topic(0x428A, 'homeassistant/number/samsung_ehs_4052_dt_target/config', 'temperature', 'FSV4052 dT Target', 'homeassistant/number/samsung_ehs_4052_dt_target/state', '°C', FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_4052_dt_target/set', {"min": 2, "max": 8, "step": 1}) # dt is is 1°C unit
   mqtt_create_topic(0x40C3, 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/config', None, 'FSV4053 Inverter Pump Factor', 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/state', None, FSVWriteMQTTHandler, 'homeassistant/number/samsung_ehs_4053_inv_pump_factor/set', {"min": 1, "max": 3, "step": 1})
   # DHW
   optmap={"no DHW":0, "DHW thermo on temp (1)":1, "DHW thermo off temp (2)": 2}
