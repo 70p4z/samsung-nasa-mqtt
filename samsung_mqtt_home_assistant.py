@@ -186,7 +186,9 @@ class WriteMQTTHandler(MQTTHandler):
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
     if not self.can_modify():
-      self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)], retain=True)
+      if self.nasa_msgnum in nasa_message_name:
+        #self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)], retain=True)
+        self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
     intval = int(float(msg.payload.decode('utf-8'))*self.multiplier)
     if nasa_update(self.nasa_msgnum, intval) or True:
@@ -209,7 +211,9 @@ class FSVONOFFMQTTHandler(FSVWriteMQTTHandler):
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
     if not self.can_modify():
-      self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)], retain=True)
+      if self.nasa_msgnum in nasa_message_name:
+        #self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)], retain=True)
+        self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
     intval=0
     if mqttpayload == "ON":
@@ -222,7 +226,9 @@ class SetMQTTHandler(WriteMQTTHandler):
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
     if not self.can_modify():
-      self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)], retain=True)
+      if self.nasa_msgnum in nasa_message_name:
+        #self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)], retain=True)
+        self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
     intval = int(float(msg.payload.decode('utf-8'))*self.multiplier)
     if nasa_update(self.nasa_msgnum, intval) or True:
@@ -257,7 +263,8 @@ class StringIntMQTTHandler(WriteMQTTHandler):
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
     if not nasa_fsv_writable():
-      self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
+      if self.nasa_msgnum in nasa_message_name:
+        self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
     global pgw
     payload = msg.payload.decode('utf-8')
