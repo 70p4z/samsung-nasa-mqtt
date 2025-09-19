@@ -128,12 +128,14 @@ def nasa_reset_state():
     nasa_state[nasa_message_name(0x42DA)] = args.nasa_default_zone_temp*10
 
 
-def nasa_payload_mqtt_handler(client, userdata, msg):
+def nasa_raw_payload_mqtt_handler(client, userdata, msg):
   global pgw
   mqttpayload = msg.payload.decode('utf-8')
   try:
     binpayload = tools.hex2bin(mqttpayload)
-    mqtt_client.publish('homeassistant/text/samsung_ehs_payload/state', mqttpayload, retain=True)
+    # force specific nonce for matching reply
+    binpayload = binpayload[:NASA_PACKETNUMBER_OFF] + b'\xF0' + binpayload[NASA_PACKETNUMBER_OFF+1:]
+    mqtt_client.publish('homeassistant/text/samsung_ehs_raw_payload/state', tools.bin2hex(binpayload), retain=True)
     # will prepend start, compute and append crc and stop
     pgw.packet_tx(binpayload)
   except BaseException as e:
@@ -186,7 +188,7 @@ class WriteMQTTHandler(MQTTHandler):
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
     if not self.can_modify():
-      if self.nasa_msgnum in nasa_message_name:
+      if nasa_message_name(self.nasa_msgnum) in nasa_state:
         #self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)], retain=True)
         self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
@@ -211,7 +213,7 @@ class FSVONOFFMQTTHandler(FSVWriteMQTTHandler):
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
     if not self.can_modify():
-      if self.nasa_msgnum in nasa_message_name:
+      if nasa_message_name(self.nasa_msgnum) in nasa_state:
         #self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)], retain=True)
         self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
@@ -219,6 +221,36 @@ class FSVONOFFMQTTHandler(FSVWriteMQTTHandler):
     if mqttpayload == "ON":
       intval=1
     if nasa_update(self.nasa_msgnum, intval) or True:
+      nasa_write_with_check_command(nasa_write(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
+
+class FSVTestModeMQTTHandler(FSVWriteMQTTHandler):
+  def __init__(self, mqtt_client, topic, nasa_msgnum, bitmask=0):
+    super().__init__(mqtt_client, topic, nasa_msgnum)
+    self.bitmask = bitmask
+  def publish(self, valueInt):
+    valueStr = "OFF"
+    if valueInt == -1:
+      # invalid value, clear up the test mode bitmap
+      nasa_state[nasa_message_name(self.nasa_msgnum)] = 0
+    elif (valueInt&self.bitmask):
+      valueStr = "ON"
+    self.mqtt_client.publish(self.topic, valueStr, retain=True)
+  def action(self, client, userdata, msg):
+    mqttpayload = msg.payload.decode('utf-8')
+    log.info(self.topic + " = " + mqttpayload)
+    if not self.can_modify():
+      if nasa_message_name(self.nasa_msgnum) in nasa_state:
+        self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
+      return
+    if nasa_message_name(self.nasa_msgnum) in nasa_state:
+      intval = nasa_state[nasa_message_name(self.nasa_msgnum)]
+    else:
+      intval=0
+    intval &= ~self.bitmask
+    if mqttpayload == "ON":
+      intval |= self.bitmask
+    if nasa_update(self.nasa_msgnum, intval) or True:
+      # set the bitmask
       nasa_write_with_check_command(nasa_write(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
 
 class FSVFreqLimitMQTTHandler(FSVWriteMQTTHandler):
@@ -233,7 +265,7 @@ class FSVFreqLimitMQTTHandler(FSVWriteMQTTHandler):
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
     if not self.can_modify():
-      if self.nasa_msgnum in nasa_message_name:
+      if nasa_message_name(self.nasa_msgnum) in nasa_state:
         self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
     intval=int(mqttpayload, 0)
@@ -247,7 +279,7 @@ class SetMQTTHandler(WriteMQTTHandler):
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
     if not self.can_modify():
-      if self.nasa_msgnum in nasa_message_name:
+      if nasa_message_name(self.nasa_msgnum) in nasa_state:
         #self.mqtt_client.publish(self.topic, nasa_state[nasa_message_name(self.nasa_msgnum)], retain=True)
         self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
@@ -284,7 +316,7 @@ class StringIntMQTTHandler(WriteMQTTHandler):
     mqttpayload = msg.payload.decode('utf-8')
     log.info(self.topic + " = " + mqttpayload)
     if not nasa_fsv_writable():
-      if self.nasa_msgnum in nasa_message_name:
+      if nasa_message_name(self.nasa_msgnum) in nasa_state:
         self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
       return
     global pgw
@@ -388,8 +420,14 @@ def rx_nasa_handler(*nargs, **kwargs):
   dataSets = kwargs["dataSets"]
   source = kwargs["source"]
   dest = kwargs["dest"]
+  packet = kwargs["packet"]
 
   nasa_log_packet(log, source, dest, packetType, payloadType, packetNumber, dataSets)
+
+
+  # reply from a custom MQTT payload?
+  if tools.bin2hex(dest) == args.nasa_addr and packetNumber == 240:
+    mqtt_client.publish('homeassistant/text/samsung_ehs_raw_reply/state', tools.bin2hex(packet), retain=True)
 
   # ignore non normal packets
   if packetType != "normal":
@@ -458,8 +496,8 @@ def rx_nasa_handler(*nargs, **kwargs):
 
       if ds[1] in mqtt_published_vars:
         # use the topic name and payload formatter from the mqtt publish array
-        mqtt_p_v = mqtt_published_vars[ds[1]]
-        mqtt_p_v.publish(ds[4][0])
+        for mqtt_p_v in mqtt_published_vars[ds[1]]:
+          mqtt_p_v.publish(ds[4][0])
 
       mqtt_client.publish('homeassistant/sensor/samsung_ehs/nasa_'+hex(ds[0]), payload=ds[2], retain=True)
     except BaseException as e:
@@ -501,16 +539,23 @@ def publisher_thread():
         log.info("Communication lost!")
         os.kill(os.getpid(), signal.SIGTERM)
 
+      #zone temps are not coherent with cached state
+      if desynch >= 4:
+        log.info("Too much desynch assuming communication is lost!")
+        os.kill(os.getpid(), signal.SIGTERM)
+
       # wait until pnp is done before requesting values
       if nasa_last_publish + args.nasa_interval < time.time():
         if nasa_pnp_ended or not args.nasa_pnp:
           nasa_last_publish = time.time()
           zone1_temp_name = nasa_message_name(0x423A) # don't use value for the EHS, but from sensors instead
           zone2_temp_name = nasa_message_name(0x42DA) # don't use value for the EHS, but from sensors instead
-          # if zone1_temp_name in nasa_state or zone2_temp_name in nasa_state:
+          # when ambient are set, then we MUST change to ambient temp instead of water flow for temp ref,
+          # else the 423A/42DA are not update in EHS
+          if zone1_temp_name in nasa_state or zone2_temp_name in nasa_state:
+            pgw.packet_tx(nasa_set_ehs_temp_reference(0))
             # pgw.packet_tx(nasa_notify_error(0))
             # time.sleep(0.25)
-            # pgw.packet_tx(nasa_set_ehs_temp_reference(0))
             # time.sleep(0.25)
           # publish zone 1 and 2 values toward nasa (periodic keep alive)
           if zone1_temp_name in nasa_state:
@@ -521,10 +566,10 @@ def publisher_thread():
             time.sleep(0.25)
 
           for name in mqtt_published_vars:
-            handler = mqtt_published_vars[name]
-            if not nasa_message_name(handler.nasa_msgnum) in nasa_state and (isinstance(handler, FSVWriteMQTTHandler) or isinstance(handler, FSVSetMQTTHandler) or isinstance(handler, FSVStringIntMQTTHandler)):
-              handler.initread()
-              time.sleep(0.25)
+            for handler in mqtt_published_vars[name]:
+              if not nasa_message_name(handler.nasa_msgnum) in nasa_state and (isinstance(handler, FSVWriteMQTTHandler) or isinstance(handler, FSVSetMQTTHandler) or isinstance(handler, FSVStringIntMQTTHandler)):
+                handler.initread()
+                time.sleep(0.25)
 
       nasa_update_timeout_checks_rm=[]
       for nutc in nasa_update_timeout_checks:
@@ -542,11 +587,6 @@ def publisher_thread():
       if time.time() > time_update_flow_target:
         pgw.packet_tx(nasa_read([0x4202]))
         time_update_flow_target = time.time()+10
-
-      #zone temps are not coherent with cached state
-      if desynch >= 4:
-        log.info("Too much desynch assuming communication is lost!")
-        os.kill(os.getpid(), signal.SIGTERM)
 
       if args.nasa_pnp:
         # start PNP
@@ -637,14 +677,15 @@ def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state
     retain=True)
 
   nasa_name = nasa_message_name(nasa_msgnum)
+  handler = None
   if not nasa_name in mqtt_published_vars:
-    if handler_parameter is None: 
-      handler = type_handler(mqtt_client, topic, nasa_msgnum)
-    else:
-      handler = type_handler(mqtt_client, topic, nasa_msgnum, handler_parameter)
-    mqtt_published_vars[nasa_name] = handler
-  
-  handler = mqtt_published_vars[nasa_name]
+    mqtt_published_vars[nasa_name] = []
+  if handler_parameter is None: 
+    handler = type_handler(mqtt_client, topic, nasa_msgnum)
+  else:
+    handler = type_handler(mqtt_client, topic, nasa_msgnum, handler_parameter)
+  mqtt_published_vars[nasa_name].append(handler)
+
   if topic_set:
     mqtt_client.message_callback_add(topic_set, handler.action)
     mqtt_client.subscribe(topic_set)
@@ -713,15 +754,21 @@ def mqtt_setup():
   mqtt_client.publish('homeassistant/sensor/samsung_ehs_mqtt_bridge/date', payload=datetime.strftime(datetime.now(), "%Y%m%d%H%M%S"), retain=True)
 
   # Raw payload sending
-  topic_payload_state = 'homeassistant/text/samsung_ehs_payload/state'
-  topic_payload_set = 'homeassistant/text/samsung_ehs_payload/set'
-  mqtt_client.message_callback_add(topic_payload_set, nasa_payload_mqtt_handler)
+  topic_payload_state = 'homeassistant/text/samsung_ehs_raw_payload/state'
+  topic_payload_set = 'homeassistant/text/samsung_ehs_raw_payload/set'
+  mqtt_client.message_callback_add(topic_payload_set, nasa_raw_payload_mqtt_handler)
   mqtt_client.subscribe(topic_payload_set)
-  mqtt_client.publish('homeassistant/text/samsung_ehs_payload/config', 
+  mqtt_client.publish('homeassistant/text/samsung_ehs_raw_payload/config', 
     payload=json.dumps({'command_topic':topic_payload_set,
                         'state_topic':topic_payload_state,
-                        'name':'Payload'}), 
-    retain=True)
+                        'name':'EHS Raw Payload'}), 
+    retain=False)
+  topic_reply_state = 'homeassistant/text/samsung_ehs_raw_reply/state'
+  mqtt_client.publish('homeassistant/text/samsung_ehs_raw_reply/config', 
+    payload=json.dumps({'state_topic':topic_reply_state,
+                        'command_topic':topic_payload_set, # send the new command instead of tweaking the reply
+                        'name':'EHS Raw Reply'}), 
+    retain=False)
 
   # FSV unlock toggle to avoid unwanted finger modifications :)
   topic_state = 'homeassistant/switch/samsung_ehs_fsv_unlock/state'
@@ -731,7 +778,7 @@ def mqtt_setup():
   mqtt_client.publish('homeassistant/switch/samsung_ehs_fsv_unlock/config', 
     payload=json.dumps({'command_topic':topic_set,
                         'state_topic':topic_state,
-                        'name': args.nasa_mqtt_prefix + ' FSV Unlock'}), 
+                        'name': 'EHS FSV Unlock'}), 
     retain=True)
   # relock by default
   global nasa_fsv_unlocked
@@ -824,6 +871,15 @@ def mqtt_setup():
 
   mqtt_create_topic(0x4046, 'homeassistant/switch/samsung_ehs_silence_mode/config', None, 'Silence Mode', 'homeassistant/switch/samsung_ehs_silence_mode/state', None, FSVONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_silence_mode/set')
   mqtt_create_topic(0x4129, 'homeassistant/switch/samsung_ehs_silence_param/config', None, 'Silence Parameter', 'homeassistant/switch/samsung_ehs_silence_param/state', None, FSVONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_silence_param/set')
+
+  mqtt_create_topic(0x4086, 'homeassistant/switch/samsung_ehs_test_mode/config', None, 'Test Mode', 'homeassistant/switch/samsung_ehs_test_mode/state', None, FSVONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_test_mode/set')
+  mqtt_create_topic(0x4246, 'homeassistant/switch/samsung_ehs_test_mode_wp/config', None, 'Test Mode Water Pump', 'homeassistant/switch/samsung_ehs_test_mode_wp/state', None, FSVTestModeMQTTHandler, 'homeassistant/switch/samsung_ehs_test_mode_wp/set', None, NASA_TEST_MODE_WATER_PUMP_BIT)
+  mqtt_create_topic(0x4246, 'homeassistant/switch/samsung_ehs_test_mode_htr/config', None, 'Test Mode Heater', 'homeassistant/switch/samsung_ehs_test_mode_htr/state', None, FSVTestModeMQTTHandler, 'homeassistant/switch/samsung_ehs_test_mode_htr/set', None, NASA_TEST_MODE_HEATER)
+  mqtt_create_topic(0x4246, 'homeassistant/switch/samsung_ehs_test_mode_v3vdhw/config', None, 'Test Mode DHW V3V', 'homeassistant/switch/samsung_ehs_test_mode_v3vdhw/state', None, FSVTestModeMQTTHandler, 'homeassistant/switch/samsung_ehs_test_mode_v3vdhw/set', None, NASA_TEST_MODE_V3V_DHW)
+  mqtt_create_topic(0x4246, 'homeassistant/switch/samsung_ehs_test_mode_vz1/config', None, 'Test Mode Zone1 Valve', 'homeassistant/switch/samsung_ehs_test_mode_vz1/state', None, FSVTestModeMQTTHandler, 'homeassistant/switch/samsung_ehs_test_mode_vz1/set', None, NASA_TEST_MODE_V_ZONE1)
+  mqtt_create_topic(0x4246, 'homeassistant/switch/samsung_ehs_test_mode_blr/config', None, 'Test Mode Boiler Suppl', 'homeassistant/switch/samsung_ehs_test_mode_blr/state', None, FSVTestModeMQTTHandler, 'homeassistant/switch/samsung_ehs_test_mode_blr/set', None, NASA_TEST_MODE_BOILER_SUPPL)
+  mqtt_create_topic(0x4246, 'homeassistant/switch/samsung_ehs_test_mode_vz2/config', None, 'Test Mode Zone2 Valve', 'homeassistant/switch/samsung_ehs_test_mode_vz2/state', None, FSVTestModeMQTTHandler, 'homeassistant/switch/samsung_ehs_test_mode_vz2/set', None, NASA_TEST_MODE_V_ZONE2)
+  mqtt_create_topic(0x4246, 'homeassistant/switch/samsung_ehs_test_mode_v3vz2/config', None, 'Test Mode Zone2 V3V', 'homeassistant/switch/samsung_ehs_test_mode_v3vz2/state', None, FSVTestModeMQTTHandler, 'homeassistant/switch/samsung_ehs_test_mode_v3vz2/set', None, NASA_TEST_MODE_V3V_ZONE2)
 
   # unknown values to be traced to reverse them
   mqtt_create_topic(0x40b2, 'homeassistant/sensor/samsung_ehs_40b2/config', None, '0x40b2', 'homeassistant/sensor/samsung_ehs_40b2/state', None, FSVWriteMQTTHandler, None)
