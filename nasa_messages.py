@@ -785,6 +785,15 @@ NasaPayloadTypes = [
   "undef", "read", "write", "request", "notification", "response", "ack", "nack"
 ]
 
+NASA_SOURCE_OFF = 0
+NASA_DEST_OFF = 3
+NASA_C0_OFF = 6
+NASA_INSTRUCTION_OFF = 7
+NASA_PACKETNUMBER_OFF = 8
+NASA_COUNT_OFF = 9
+
+NASA_STRUCT_GET_DESC = 0x4612
+
 class NasaPacketParser:
   def __init__(self):
     pass
@@ -795,7 +804,7 @@ class NasaPacketParser:
   """
   def parse_nasa(self, p, handler=None):
     if len(p) < 3+3+1+1+1+1:
-      raise BaseException("Too short NASA packet")
+      raise BaseException("Too short NASA packet: " + tools.bin2hex(p))
 
     src = p[0:3]
     dst = p[3:6]
@@ -822,6 +831,7 @@ class NasaPacketParser:
     for i in range(0, dsCnt):
       seenMsgCnt+=1
       kind=(p[off]&0x6)>>1
+      messageNumber = struct.unpack(">H",p[off: off+2])[0]
       if kind == 0:
         s = 1
       elif kind == 1:
@@ -831,9 +841,8 @@ class NasaPacketParser:
       elif kind == 3:
         if dsCnt != 1:
           raise BaseException("Invalid encoded packet containing a struct: "+tools.bin2hex(p))
-        ds.append([-1, "STRUCTURE", p[off:], tools.bin2hex(p[off:]), p[off:], [p[off:]]])
+        ds.append([messageNumber, "STRUCTURE", p[off:], tools.bin2hex(p[off:]), p[off:], [p[off:]]])
         break
-      messageNumber = struct.unpack(">H",p[off: off+2])[0]
       value = p[off+2:off+2+s]
       valuehex = tools.bin2hex(value)
       valuedec = []
@@ -865,7 +874,7 @@ class NasaPacketParser:
       raise BaseException("Not every message processed")
 
     if handler is not None:
-      handler(source=src, dest=dst, isInfo=isInfo, protocolVersion=protVersion, retryCounter=retryCnt, packetType=packetTypStr, payloadType=payloadTypeStr, packetNumber=packetNumber, dataSets=ds)
+      handler(source=src, dest=dst, isInfo=isInfo, protocolVersion=protVersion, retryCounter=retryCnt, packetType=packetTypStr, payloadType=payloadTypeStr, packetNumber=packetNumber, dataSets=ds, packet=p)
 
 def nasa_log_packet(log, src, dst, packetTypStr, payloadTypeStr, packetNumber, dataSets):
   log.info("src:"+tools.bin2hex(src)+" dst:"+tools.bin2hex(dst)+" type:"+packetTypStr+" ins:"+payloadTypeStr+" nonce:"+hex(packetNumber))
@@ -889,7 +898,7 @@ def nasa_message_name(message_number):
 
 def nasa_message_lookup(message_name):
   for ns in nasa_message_numbers:
-    if ns[1] == message_name:
+    if ns[1].find(message_name) != -1:
       return ns[0]
   raise BaseException('Name not found')
 
@@ -897,41 +906,50 @@ nonce = 0xA4
 def getnonce():
   global nonce
   nonce+=1
-  nonce%=256
+  nonce%=240 # reserve last nonces for particular request/reply matching
   return nonce
 
 def resetnonce():
   global nonce
   nonce=0
 
-def nasa_forge(instruction, msg_value={}, source=None, dest=None):
+def nasa_message_encode(messageNumber, val):
+  msg=struct.pack(">H", messageNumber)
+  vallen=(messageNumber&0x700)>>8
+  if vallen == 0 or vallen == 1:
+    if val > 127:
+      val = 127
+    if val < -128:
+      val = -128
+    msg+=struct.pack(">b", val)
+  if vallen == 2:
+    if val > 32767:
+      val = 32767
+    if val < -32768:
+      val = -32768
+    msg+=struct.pack(">h", val)
+  if vallen == 4:
+    msg+=struct.pack(">I", val&0xFFFFFFFF)
+  return msg
+
+def nasa_forge(instruction, msg_value={}, source=None, dest=None, msg=None, packetNumber=None):
   if not source:
     global attributed_address
     source = attributed_address
   if not dest:
     dest="B0FF20" # EHS
-  msg = b''
+  nonce=packetNumber
+  if nonce == None:
+    nonce = getnonce()
   count=0
+  if msg != None:
+    count = 1
+  else:
+    msg = b''
   for intMsg in msg_value:
-    msg+=struct.pack(">H", intMsg)
-    vallen=(intMsg&0x700)>>8
-    val=msg_value[intMsg]
-    if vallen == 0 or vallen == 1:
-      if val > 127:
-        val = 127
-      if val < -128:
-        val = -128
-      msg+=struct.pack(">b", val)
-    if vallen == 2:
-      if val > 32767:
-        val = 32767
-      if val < -32768:
-        val = -32768
-      msg+=struct.pack(">h", val)
-    if vallen == 4:
-      msg+=struct.pack(">i", val)
+    msg+=nasa_message_encode(intMsg, msg_value[intMsg])
     count+=1
-  return tools.hex2bin(source+dest)+struct.pack(">BBBB", 0xC0, instruction&0xFF, getnonce()&0xFF, count&0xFF)+msg
+  return tools.hex2bin(source+dest)+struct.pack(">BBBB", 0xC0, instruction&0xFF, nonce&0xFF, count&0xFF)+msg
 
 def nasa_set(intMsgNumber, intvalue, source=None):
   return nasa_forge(0x13, {intMsgNumber: intvalue}, source)
@@ -1040,6 +1058,14 @@ def nasa_zone_power(enabled=False, zone=1, target_temp=0, mode=None, source=None
 def nasa_notify_error(error, source=None):
   return nasa_forge(0x14, {0x0202: error}, source)
 
+
+NASA_TEST_MODE_WATER_PUMP_BIT=0x0001
+NASA_TEST_MODE_HEATER=0x0008
+NASA_TEST_MODE_V3V_DHW=0x0020
+NASA_TEST_MODE_V_ZONE1=0x0040
+NASA_TEST_MODE_BOILER_SUPPL=0x0010
+NASA_TEST_MODE_V_ZONE2=0x0080
+NASA_TEST_MODE_V3V_ZONE2=0x0100
 
 #######################################
 #                                     #
