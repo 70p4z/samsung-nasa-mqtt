@@ -87,7 +87,7 @@ class NASAUpdateTimeoutCheck():
   def command(self):
     return self.updatecommand
 
-def nasa_write_with_check_command(command, msgnum, expectedintvalue, timeout_s=5.0):
+def nasa_cmd_with_check(command, msgnum, expectedintvalue, timeout_s=5.0):
   # avoid multiple commands with same target message num, only keep the last
   for nutc in nasa_update_timeout_checks:
     if nutc.msgnum() == msgnum:
@@ -194,7 +194,7 @@ class WriteMQTTHandler(MQTTHandler):
       return
     intval = int(float(msg.payload.decode('utf-8'))*self.multiplier)
     if nasa_update(self.nasa_msgnum, intval) or True:
-      nasa_write_with_check_command(nasa_write(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
+      nasa_cmd_with_check(nasa_write(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
   def initread(self):
     global pgw
     pgw.packet_tx(nasa_read(self.nasa_msgnum))
@@ -221,7 +221,7 @@ class FSVONOFFMQTTHandler(FSVWriteMQTTHandler):
     if mqttpayload == "ON":
       intval=1
     if nasa_update(self.nasa_msgnum, intval) or True:
-      nasa_write_with_check_command(nasa_write(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
+      nasa_cmd_with_check(nasa_write(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
 
 class FSVTestModeMQTTHandler(FSVWriteMQTTHandler):
   def __init__(self, mqtt_client, topic, nasa_msgnum, bitmask=0):
@@ -251,7 +251,9 @@ class FSVTestModeMQTTHandler(FSVWriteMQTTHandler):
       intval |= self.bitmask
     if nasa_update(self.nasa_msgnum, intval) or True:
       # set the bitmask
-      nasa_write_with_check_command(nasa_write(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
+      nasa_cmd_with_check(nasa_set(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
+      # echo back on mqtt (requests are only acked, value is not replied)
+      self.publish(nasa_state[nasa_message_name(self.nasa_msgnum)])
 
 class FSVFreqLimitMQTTHandler(FSVWriteMQTTHandler):
   def publish(self, valueInt):
@@ -272,7 +274,7 @@ class FSVFreqLimitMQTTHandler(FSVWriteMQTTHandler):
     if intval >= 50 and intval <= 150:
       intval=0x100+(intval&0xFF)
     if nasa_update(self.nasa_msgnum, intval) or True:
-      nasa_write_with_check_command(nasa_write(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
+      nasa_cmd_with_check(nasa_write(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
 
 class SetMQTTHandler(WriteMQTTHandler):
   def action(self, client, userdata, msg):
@@ -286,7 +288,7 @@ class SetMQTTHandler(WriteMQTTHandler):
     intval = int(float(msg.payload.decode('utf-8'))*self.multiplier)
     if nasa_update(self.nasa_msgnum, intval) or True:
       global pgw
-      nasa_write_with_check_command(nasa_set(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
+      nasa_cmd_with_check(nasa_set(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
 
 class ONOFFSetMQTTHandler(SetMQTTHandler):
   def publish(self, valueInt):
@@ -325,7 +327,7 @@ class StringIntMQTTHandler(WriteMQTTHandler):
       if s == payload:
         valueInt = self.map[s]
         if nasa_update(self.nasa_msgnum, valueInt) or True:
-          nasa_write_with_check_command(nasa_write(self.nasa_msgnum, valueInt), self.nasa_msgnum, valueInt)
+          nasa_cmd_with_check(nasa_write(self.nasa_msgnum, valueInt), self.nasa_msgnum, valueInt)
           break
     else:
       log.error("ignoring '" +self.topic + "' value: '" + payload + "'")
@@ -343,7 +345,7 @@ class DHWONOFFMQTTHandler(ONOFFSetMQTTHandler):
       intval=1
     if nasa_update(self.nasa_msgnum, intval) or True:
       global pgw
-      nasa_write_with_check_command(nasa_dhw_power(intval == 1), 0x4065, intval)
+      nasa_cmd_with_check(nasa_dhw_power(intval == 1), 0x4065, intval)
 
 class COPMQTTHandler(MQTTHandler):
   def publish(self, valueInt):
@@ -367,7 +369,7 @@ class Zone1IntDiv10MQTTHandler(SetMQTTHandler):
     self.mqtt_client.publish(self.topic, mqttpayload, retain=True)
     new_temp = int(float(mqttpayload)*10)
     if nasa_update(0x423A, new_temp) or True:
-      nasa_write_with_check_command(nasa_set_zone1_temperature(float(mqttpayload)), 0x4203, new_temp)
+      nasa_cmd_with_check(nasa_set_zone1_temperature(float(mqttpayload)), 0x4203, new_temp)
 
 class Zone1SwitchMQTTHandler(ONOFFSetMQTTHandler):
   def action(self, client, userdata, msg):
@@ -377,7 +379,7 @@ class Zone1SwitchMQTTHandler(ONOFFSetMQTTHandler):
     intval=0
     if mqttpayload == "ON":
       intval=1
-    nasa_write_with_check_command(nasa_zone_power(intval==1,1), 0x4000, intval)
+    nasa_cmd_with_check(nasa_zone_power(intval==1,1), 0x4000, intval)
 
 class Zone2IntDiv10MQTTHandler(SetMQTTHandler):
   def __init__(self, mqtt_client, topic, nasa_msgnum):
@@ -389,7 +391,7 @@ class Zone2IntDiv10MQTTHandler(SetMQTTHandler):
     self.mqtt_client.publish(self.topic, mqttpayload, retain=True)
     new_temp = int(float(mqttpayload)*10)
     if nasa_update(0x42DA, new_temp) or True:
-      nasa_write_with_check_command(nasa_set_zone2_temperature(float(mqttpayload)), 0x42D4, new_temp)
+      nasa_cmd_with_check(nasa_set_zone2_temperature(float(mqttpayload)), 0x42D4, new_temp)
       
 class Zone2SwitchMQTTHandler(ONOFFSetMQTTHandler):
   def action(self, client, userdata, msg):
@@ -401,7 +403,7 @@ class Zone2SwitchMQTTHandler(ONOFFSetMQTTHandler):
     val = 0
     if enabled:
       val = 1
-    nasa_write_with_check_command(nasa_zone_power(enabled,2), 0x411e, val)
+    nasa_cmd_with_check(nasa_zone_power(enabled,2), 0x411e, val)
 
 #handler(source, dest, isInfo, protocolVersion, retryCounter, packetType, payloadType, packetNumber, dataSets)
 def rx_nasa_handler(*nargs, **kwargs):
@@ -862,7 +864,7 @@ def mqtt_setup():
   mqtt_create_topic(0x408b, 'homeassistant/sensor/samsung_ehs_dhw_3way_valve_dir/config', None, 'DHW Valve Direction Tank', 'homeassistant/sensor/samsung_ehs_dhw_3way_valve_dir/state', None, FSVStringIntMQTTHandler, None, {"options": [*optmap]}, optmap)
 
   mqtt_create_topic(0x40A7, 'homeassistant/switch/samsung_ehs_5051_fr_control/config', None, 'FSV5051 FR control', 'homeassistant/switch/samsung_ehs_5051_fr_control/state', None, FSVONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_5051_fr_control/set')
-  mqtt_create_topic(0x42F1, 'homeassistant/number/samsung_ehs_fr_limit/config', None, 'Frequency Ratio Limit', 'homeassistant/number/samsung_ehs_fr_limit/state', None, FSVFreqLimitMQTTHandler, 'homeassistant/number/samsung_ehs_fr_limit/set', {"min": 0, "max": 150, "step": 10})
+  mqtt_create_topic(0x42F1, 'homeassistant/number/samsung_ehs_505x_fr_limit/config', None, 'FSV505x FR limit', 'homeassistant/number/samsung_ehs_505x_fr_limit/state', None, FSVFreqLimitMQTTHandler, 'homeassistant/number/samsung_ehs_505x_fr_limit/set', {"min": 0, "max": 150, "step": 10})
 
   optmap={"Ambient (0)":0, "Water Flow (1)":1}
   mqtt_create_topic(0x406F, 'homeassistant/select/samsung_ehs_temp_ref/config', None, 'Temperature Reference', 'homeassistant/select/samsung_ehs_temp_ref/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_temp_ref/set', {"options": [*optmap]}, optmap)
