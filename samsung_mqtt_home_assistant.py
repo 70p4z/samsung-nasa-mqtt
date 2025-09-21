@@ -274,6 +274,8 @@ class FSVFreqLimitMQTTHandler(FSVWriteMQTTHandler):
     intval=int(mqttpayload, 0)
     if intval >= 50 and intval <= 150:
       intval=0x100+(intval&0xFF)
+    else:
+      intval = 0 # disable completely, not in range
     if nasa_update(self.nasa_msgnum, intval) or True:
       nasa_cmd_with_check(nasa_write(self.nasa_msgnum, intval), self.nasa_msgnum, intval)
 
@@ -530,6 +532,7 @@ def publisher_thread():
   time.sleep(10)
   nasa_last_publish = 0
   time_update_flow_target = 0
+  time_check_fr_dr = 0
 
   if not args.nasa_pnp:
     nasa_set_attributed_address(args.nasa_addr)
@@ -592,15 +595,16 @@ def publisher_thread():
         time_update_flow_target = time.time()+10
 
       # ensure DR is set to a correct value when FR is set
-      if args.fr_5051_dr_default != 0:
+      if args.fr_5051_dr_default != 0 and time.time() > time_check_fr_dr:
+        time_check_fr_dr = time.time()+10
         fr_5051_name = nasa_message_name(0x40A7)
         dr_505x_name = nasa_message_name(0x42F1)
         # when Frequency Control is enabled
         if fr_5051_name in nasa_state and nasa_state[fr_5051_name] != 0:
           # if DR is not set, or its value is not set within range, then force the value
-          if not dr_505x_name in nasa_state or nasa_state[dr_505x_name] < (0x100+50) or nasa_state[dr_505x_name] > (0x100+150):
-            log.info("FR with DR set: " + hex(nasa_state[dr_505x_name]) + " " + nasa_state[fr_5051_name])
-            nasa_cmd_with_check(nasa_write(0x42F1, 0x100+max(50,min(args.fr_5051_dr_default,150))), 0x42F1, args.fr_5051_dr_default)
+          if not dr_505x_name in nasa_state or ( nasa_state[dr_505x_name] < (0x100+50) or nasa_state[dr_505x_name] > (0x100+150) ):
+            dr_value = 0x100+max(50,min(args.fr_5051_dr_default,150))
+            nasa_cmd_with_check(nasa_write(0x42F1, dr_value), 0x42F1, dr_value)
 
       if args.nasa_pnp:
         # start PNP
