@@ -34,6 +34,7 @@ parser.add_argument('--nasa-pnp', action="store_true", help="Perform Plug and Pl
 parser.add_argument('--nasa-mute', action="store_true", help="Ensure no NASA message is transmitted, only dump and interp received packets (interact with MQTT unidirectionally)")
 parser.add_argument('--nasa-default-zone-temp', help="Set given default temperature when MQTT restart or communication is lost or when PNP is timeout", type=auto_int)
 parser.add_argument('--nasa-mqtt-prefix', default="EHS", help="prefix for topic to allow for multiple EHS monitoring")
+parser.add_argument('--fr-5051-dr-default', default="50", type=auto_int, help="Default value to set DR when FR (FSV#5051) is set and DR is not or invalid (0x42F1)")
 args = parser.parse_args()
 
 # NASA state
@@ -589,6 +590,17 @@ def publisher_thread():
       if time.time() > time_update_flow_target:
         pgw.packet_tx(nasa_read([0x4202]))
         time_update_flow_target = time.time()+10
+
+      # ensure DR is set to a correct value when FR is set
+      if args.fr_5051_dr_default != 0:
+        fr_5051_name = nasa_message_name(0x40A7)
+        dr_505x_name = nasa_message_name(0x42F1)
+        # when Frequency Control is enabled
+        if fr_5051_name in nasa_state and nasa_state[fr_5051_name] != 0:
+          # if DR is not set, or its value is not set within range, then force the value
+          if not dr_505x_name in nasa_state or nasa_state[dr_505x_name] < (0x100+50) or nasa_state[dr_505x_name] > (0x100+150):
+            log.info("FR with DR set: " + hex(nasa_state[dr_505x_name]) + " " + nasa_state[fr_5051_name])
+            nasa_cmd_with_check(nasa_write(0x42F1, 0x100+max(50,min(args.fr_5051_dr_default,150))), 0x42F1, args.fr_5051_dr_default)
 
       if args.nasa_pnp:
         # start PNP
