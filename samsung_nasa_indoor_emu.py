@@ -1,0 +1,515 @@
+import packetgateway
+import os
+import tools
+import time
+import threading 
+import argparse
+import traceback
+import paho.mqtt.client as mqtt
+import json
+import sys
+import signal
+import io
+from datetime import datetime, timedelta
+
+from nasa_messages import *
+
+from logger import log
+
+def auto_int(x):
+  return int(x, 0)
+
+argparser = argparse.ArgumentParser()
+argparser.add_argument('--serial-host', default="127.0.0.1",help="host to connect the serial interface endpoint (i.e. socat /dev/ttyUSB0,parenb,raw,echo=0,b9600,nonblock,min=0 tcp-listen:7001,reuseaddr,fork )")
+argparser.add_argument('--serial-port', default="7002", type=auto_int, help="port to connect the serial interface endpoint")
+argparser.add_argument('--no-broadcast', action="store_true", help="avoid sending regular broadcast")
+args = argparser.parse_args()
+
+# NASA state
+pgw = None
+
+def ds_get_int(dataSets, messageNumber):
+  for ds in dataSets:
+    if ds[0] == messageNumber:
+      return ds[4][0]
+  raise BaseException("Message number not found")
+
+#handler(source, dest, isInfo, protocolVersion, retryCounter, packetType, payloadType, packetNumber, dataSets)
+def rx_nasa_handler(*nargs, **kwargs):
+  global mqtt_client
+  global last_nasa_rx
+  global args
+  global pgw
+  global nasa_pnp_check_requested
+  global nasa_pnp_ended
+  global desynch
+  global nasa_state
+  last_nasa_rx = time.time()
+  packetType = kwargs["packetType"]
+  payloadType = kwargs["payloadType"]
+  packetNumber = kwargs["packetNumber"]
+  dataSets = kwargs["dataSets"]
+  source = kwargs["source"]
+  dest = kwargs["dest"]
+
+  nasa_log_packet(log, source, dest, packetType, payloadType, packetNumber, dataSets)
+
+  # perform PNP request serving
+  for ds in dataSets:
+    if ds[0] == 0x2004 and ds[4][0] == 0x1:
+      pgw.packet_tx(nasa_forge(0x12, {0x2004: 0x03, 
+                                      0x418: ds_get_int(dataSets, 0x418), 
+                                      0x217: ds_get_int(dataSets, 0x217), 
+                                      0x417: ds_get_int(dataSets, 0x417), 
+                                      0x419: ds_get_int(dataSets, 0x419), 
+                                      0x2012: 0x01}, source="200000", dest=hex(ds_get_int(dataSets, 0x418))[-6:]))
+    if ds[0] == 0x2004 and ds[4][0] == 0x4:
+      pgw.packet_tx(nasa_forge(0x14, {0x2004: 0x00}, source="200000", dest="B0FFFF"))
+
+  #read
+  if payloadType == "read":
+    structure_read= False
+    msgs={}
+    for ds in dataSets:
+      # don't reply 4242 (possibly ASHP protocol legacy)
+      if ds[0] == 0x4242:
+        continue
+      # requesting a structure
+      if ds[0] & 0x0F00 == 0x0600:
+        # GET DESCRIPTOR
+        if ds[0] == NASA_STRUCT_GET_DESC:
+          fsvnum = struct.unpack_from(">H", ds[2][2:])[0]
+          log.info("Descriptor for FSV: " + str(fsvnum) + ": ")
+          content = ds[2][2:]
+          if fsvnum in nasa_desc:
+            reply = struct.pack(">HH", NASA_STRUCT_GET_DESC, fsvnum) + tools.hex2bin(nasa_desc[fsvnum])
+          else:
+            # default wide open descriptor
+            step=1
+            div=1
+            kind=3
+            vmin=0
+            vmax=0xFFFF
+            vdflt=0x0000
+            unknown=1
+            reply = struct.pack(">HHBBBHHHBBH", NASA_STRUCT_GET_DESC, fsvnum, step, div, kind, vmin, vmax, vdflt, unknown, 0, 0)
+          pgw.packet_tx(nasa_forge(0x15, {}, packetNumber=packetNumber, source="200000", dest=tools.bin2hex(source), msg=reply))
+        elif ds[0] in nasa_state:
+          pgw.packet_tx(nasa_forge(0x15, {}, packetNumber=packetNumber, source="200000", dest=tools.bin2hex(source), msg=struct.pack(">H", ds[0])+tools.hex2bin(nasa_state[ds[0]])))
+        return
+      val = -1 #default is empty value
+      if ds[0] in nasa_state:
+        val = nasa_state[ds[0]]
+      msgs[ds[0]] = val
+    #don't issue reply when not enough data in to send
+    if len(msgs) > 0:
+      pgw.packet_tx(nasa_forge(0x15, msgs, packetNumber=packetNumber, source="200000", dest=tools.bin2hex(source)))
+  # update fake state
+  if payloadType == "write" or payloadType == "notification" or payloadType == "request":
+    msgs = {}
+    for ds in dataSets:
+      # never done usually
+      if ds[0] & 0x0F00 == 0x0600:
+        nasa_state[ds[0]] = ds[2][4:]
+      else:
+        nasa_state[ds[0]] = ds[4][0]
+        msgs[ds[0]] = ds[4][0]
+    # forge a response for specific commands
+    if payloadType == "write" or payloadType == "request":
+      # reply with the same packet number
+      pgw.packet_tx(nasa_forge(0x15, msgs, packetNumber=packetNumber, source="200000", dest=tools.bin2hex(source)))
+
+def rx_event_nasa(p):
+  log.debug("packet received "+ tools.bin2hex(p))
+  parser.parse_nasa(p, rx_nasa_handler)
+
+
+#todo: make that parametrized
+pgw = packetgateway.PacketGateway(args.serial_host, args.serial_port, rx_event=rx_event_nasa, rxonly=False)
+parser = packetgateway.NasaPacketParser()
+pgw.start()
+
+
+log.info("-----------------------------------------------------------------")
+log.info("Startup")
+
+broadcast_msgidx = [
+0x0000,
+0x0202,0x0409,0x040a,0x040b,0x040c,0x040d,0x040e,0x0410,0x0411,0x0412,0x0413,0x0414,0x0415,0x0416,
+0x041b,0x4001,0x4006,0x4028,0x4029,0x402e,0x4031,0x4043,0x4046,0x4048,0x4060,0x4061,0x4065,0x4066,
+0x4068,0x4069,0x406a,0x406b,0x406c,0x406d,0x406f,0x4070,0x4074,0x4085,0x4086,0x4087,0x4089,0x408a,
+0x406b,0x4090,0x4091,0x4095,0x4096,0x4097,0x4099,0x409a,0x409c,0x40b1,0x40b2,0x40c4,0x40c5,0x4117,
+0x411e,0x4124,0x4125,0x4126,0x4127,0x4128,0x4129,0x413F,0x4150,0x4153,0x4154,0x4164,0x4167,0x4201,
+0x4203,0x4205,0x4206,0x420c,0x4213,0x4217,0x4229,0x4235,0x4236,0x4237,0x4238,0x4238,0x4241,0x4247,
+0x4248,0x424a,0x424b,0x424c,0x424d,0x424e,0x424f,0x4250,0x4251,0x4252,0x4253,0x4269,0x426a,0x426b,
+0x4273,0x4274,0x4275,0x4276,0x4277,0x4278,0x4279,0x427a,0x427b,0x427f,0x428b,0x428c,0x42ce,0x42d4,
+0x42d6,0x42d7,0x42d8,0x42d9,0x42e9,0x42eb,0x42ec,0x42f1,0x4606,0x431a,0x440f,0x441A,0x4423,0x4424,0x4426,
+0x4427,0x80A7,0x80A9,0x80CF,0x82FE,0x8413,0x8414,
+]
+
+"""
+NASA DESCRIPTOR format:
+         step     min  max  dflt
+            div
+               unit
+#1011
+461203f3 01 0a 01 00b4 00fa 00fa 01000000
+          1 10  1   18   25   25  1
+#1012
+461203f4 01 0a 01 0032 00b4 00a0 01000000
+          1 10  1    5   18   16  1
+
+#4045 
+46120fcd 01 01 03 0001 001e 0001 01000000
+
+#4061
+46120fdd 01 01 00 0000 0001 0001 01000000
+          1  1  0    0    1    1  1
+"""
+
+nasa_desc = {
+  # 1011: "010a0100b400fa00fa01000000",
+  # 1012: "010a01003200b400a001000000",
+  # 4045: "0101030001001e000101000000",
+  # 4061: "01010000000001000101000000",
+  # 5012: "010a0100b4012c012c01000000",
+}
+
+# messageNumber -> valuehex
+nasa_state = {
+  0x4604: "1300090040020000200007d90000000000000100",
+  0x4606: "2000006d71",
+  0x0600: "12300000000000000000",
+  0x0601: "20010000000000000000",
+  0x0602: "50000000000000000000",
+  0x0607: "ffffffffffffffffffffffffffffffff",
+
+  0x401: 0x00200000,
+  0x408: 0x00200000,
+  0x402: 0x00a00000,
+  0x4229: 0x0073,
+
+  0x409: 0x00000000,
+  0x40a: 0x00000000,
+  0x40b: 0x00000000,
+  0x40c: 0x00000000,
+  0x40d: 0x00000000,
+  0x40e: 0x00000000,
+  0x40f: -1,
+  0x410: 0x00000000,
+
+  0x411: 0x012c0000,
+  0x412: 0x00320000,
+  0x413: 0x02260000,
+  0x414: 0x00960000,
+  0x416: 0x00500000,
+  0x416: 0x00000000,
+  0x441a: 0x0032ffce,
+  0x440f: 0x00000000,
+  0x448: -1,
+  0x41b: 0x0020ffff,
+
+  0x4093: 0x01,
+  0x4094: 0x01,
+  0x4095: 0x00,
+  0x4096: 0x00,
+  0x4097: 0x01,
+  0x4098: 0x00,
+  0x4099: 0x00,
+  0x409a: 0x05,
+  0x409b: 0x01,
+  0x409c: 0x00,
+  0x409d: 0x00,
+  0x409e: 0x00,
+  0x409f: 0x00,
+  0x40a0: 0x00,
+  0x40a1: 0x01,
+  0x40a2: 0x00,
+  0x40a3: 0x00,
+  0x40a4: 0x00,
+  0x40a5: 0x00,
+  0x40a6: 0x01,
+  0x40a7: 0x00,
+  0x40b4: 0x07,
+  0x424a: 0x00fa,
+  0x424b: 0x00a0,
+  0x424c: 0x0118,
+  0x424d: 0x00b4,
+  0x424e: 0x01f4,
+  0x424f: 0x00fa,
+  0x4250: 0x00fa,
+  0x4251: 0x00a0,
+  0x4252: 0x02bc,
+  0x4253: 0x0190,
+  0x4254: -52,
+  0x4255: 0x00a0,
+  0x4256: 0x017c,
+  0x4257: 0x0118,
+  0x4258: 0x01a4,
+  0x4259: 0x0140,
+  0x425a: 0x012c,
+  0x425b: 0x0190,
+  0x425c: 0x00fa,
+  0x425d: 0x00b4,
+  0x425e: 0x00b4,
+  0x425f: 0x0096,
+  0x4260: 0x02bc,
+  0x4261: 0x0000,
+  0x4262: 0x0032,
+  0x4263: 0x0005,
+  0x4264: 0x001e,
+  0x4265: 0x00b4,
+  0x4266: 0x0014,
+  0x4267: 0x0000,
+  0x4268: 0x0064,
+  0x4269: 0x0017,
+  0x426a: 0x02bc,
+  0x426b: 0x000a,
+  0x426c: 0x0003,
+  0x426d: 0x0000,
+  0x426e: 0x01c2,
+  0x426f: 0x0014,
+  0x4270: 0x0000,
+  0x4271: 0x0096,
+  0x4272: -53,
+  0x4273: 0x00fa,
+  0x4274: 0x012c,
+  0x4275: 0x0096,
+  0x4276: 0x00a0,
+  0x4277: 0x00fa,
+  0x4278: 0x00fa,
+  0x4279: 0x0096,
+  0x427a: 0x0096,
+  0x427b: 0x012c,
+  0x427c: 0x0032,
+  0x427d: 0x001e,
+  0x427e: 0x0003,
+  0x4280: 0x0032,
+  0x40c0: 0x02,
+  0x42ce: 0x01e0,
+  0x4107: -1,
+  0x411a: 0x01,
+  0x411b: 0x00,
+  0x411c: 0x00,
+  0x411d: 0x00,
+  0x42db: 0x0014,
+  0x42dc: 0x0014,
+  0x42dd: 0x0014,
+  0x42de: 0x0032,
+  0x4127: 0x01,
+  0x4128: 0x00,
+  0x42ed: 0x0002,
+  0x42ee: 0x0002,
+  0x42ef: 0x0003,
+  0x42f0: 0x00fa,
+
+  0x0: 0x01,
+  0x202: 0x0000,
+  0x4061: -1,
+  0x4126: 0x00,
+  0x413f: 0x00,
+  0x4150: 0x01,
+  0x4153: 0x00,
+  0x4154: 0x00,
+  0x4203: 0x00c8,
+  0x4205: 0x00ba,
+  0x4206: -54,
+  0x420c: 0x00a6,
+  0x4217: 0x0000,
+  0x4236: 0x0115,
+  0x4237: 0x0104,
+  0x4238: 0x0115,
+  0x4239: 0xfe0c,
+  0x4241: 0xfe0c,
+  0x427f: 0x0140,
+  0x428c: 0x00cf,
+  0x42d4: 0x00c8,
+  0x42d8: 0x00cd,
+  0x42d9: 0x011d,
+  0x42e9: 0x00b8,
+  0x431a: 0xfe0c,
+
+  0x4000: 0x00,
+  0x4001: 0x04,
+  0x4006: 0x03,
+  0x4028: 0x01,
+  0x4029: 0x00,
+  0x402e: 0x00,
+  0x4031: 0x00,
+  0x4043: 0x00,
+  0x4046: 0x00,
+  0x4048: 0x00,
+  0x4060: 0x00,
+  0x4061: -1,
+  0x4065: 0x00,
+  0x4066: 0x01,
+  0x4068: 0x00,
+  0x4069: 0x00,
+
+  0x406a: 0x00,
+  0x406b: 0x00,
+  0x406c: 0x00,
+  0x406d: 0x00,
+  0x406f: 0x01,
+  0x4070: 0x00,
+  0x4074: 0x00,
+  0x4085: 0x00,
+  0x4086: 0x00,
+  0x4087: 0x00,
+  0x4089: 0x01,
+  0x408a: 0x01,
+  0x408b: 0x00,
+  0x4090: 0x04,
+  0x4091: 0x00,
+  0x4095: 0x00,
+
+  0x4096: 0x00,
+  0x4097: 0x01,
+  0x4099: 0x00,
+  0x409a: 0x05,
+  0x409c: 0x00,
+  0x40b1: 0x07,
+  0x40b2: 0x00,
+  0x40c4: 0x64,
+  0x40c5: 0x00,
+  0x4117: 0x00,
+  0x411a: 0x01,
+  0x411e: 0x01,
+  0x4124: 0x00,
+  0x4125: 0x00,
+  0x4126: 0x00,
+  0x4127: 0x01,
+
+  0x4128: 0x00,
+  0x4129: 0x00,
+  0x413f: 0x00,
+  0x4150: 0x01,
+  0x4153: 0x00,
+  0x4154: 0x00,
+  0x4164: 0x00,
+  0x4167: 0x00,
+  0x4201: 0x00c8,
+  0x4203: 0x00c8,
+  0x4205: 0x00ba,
+  0x4206: -55,
+  0x420c: 0x00a6,
+  0x4213: 0x0000,
+  0x4217: 0x0000,
+  0x4229: 0x0073,
+  0x4235: 0x01a4,
+  0x4236: 0x0115,
+  0x4237: 0x0104,
+  0x4238: 0x0118,
+  0x4239: -56,
+  0x4241: -57,
+  0x4247: 0x01c2,
+  0x4248: 0x0000,
+  0x424a: 0x00fa,
+  0x424b: 0x00a0,
+  0x424c: 0x0118,
+  0x424d: 0x00b4,
+  0x424e: 0x01f4,
+  0x424f: 0x00fa,
+  0x4250: 0x00fa,
+  0x4251: 0x00a0,
+  0x4252: 0x02bc,
+  0x4253: 0x0190,
+  0x4269: 0x0017,
+  0x426a: 0x02bc,
+  0x426b: 0x000a,
+  0x4273: 0x00fa,
+  0x4274: 0x012c,
+  0x4275: 0x0096,
+  0x4276: 0x00a0,
+  0x4277: 0x00fa,
+  0x4278: 0x00fa,
+  0x4279: 0x0096,
+  0x427a: 0x0096,
+  0x427b: 0x012c,
+  0x427f: 0x0140,
+  0x428b: 0x0000,
+  0x428c: 0x00cf,
+  0x42ce: 0x01e0,
+  0x42d4: 0x00c8,
+  0x42d6: 0x00be,
+  0x42d7: 0x01c2,
+  0x42d8: 0x00cd,
+  0x42d9: 0x011f,
+  0x42e9: 0x00af,
+  0x42eb: 0x0000,
+  0x42ec: 0x0000,
+  0x42f1: 0x0000,
+  0x431a: -58,
+  0x440f: 0x00000000,
+  0x441a: 0x0032ffce,
+  0x4423: 0x0000af8f,
+  0x4424: 0x00001e5a,
+  0x4426: 0x00000000,
+  0x4427: 0x00055809,
+  0x80a7: 0x00,
+  0x80a9: 0x00,
+  0x80cf: 0x00,
+  0x82fe: 0x009e,
+  0x8413: 0x00000044,
+  0x8414: 0x000154f7,
+
+}
+nasa_set_attributed_address("200000")
+broadcast_time = 0
+notif_list = []
+notif_next_time = 0
+
+def emu_broadcast():
+  global notif_list
+  notif_list = broadcast_msgidx[:]
+  # broadcastbuf = io.StringIO(broadcast)
+  # for l in broadcastbuf:
+  #   if (len(l) > 2):
+  #     pgw.packet_tx(tools.hex2bin(l))
+
+#emu_broadcast()
+
+while True:
+  time.sleep(0.1)
+  if time.time() > broadcast_time and not args.no_broadcast:
+    broadcast_time = time.time()+30
+    emu_broadcast()
+
+  if len(notif_list) > 0 and time.time() > notif_next_time:
+    try:
+      lst = notif_list[:min(10, len(notif_list))]
+      notif_list = notif_list[len(lst):]
+      log.info(repr(lst))
+      log.info(repr(notif_list))
+
+      # forge packet from lst, ensure not to mix struct and regular values
+      m = {}
+      has_struct=False
+      rawdata=None
+      for msg in lst:
+        if not msg in nasa_state:
+          log.error("message " + hex(msg) + "("+nasa_message_name(msg)+") has no value")
+          continue
+        # avoid mixing struct and others
+        if (len(m)>0):
+          if nasa_is_msgnum_struct(msg) or has_struct:
+            # push back
+            notif_list.append(msg)
+            continue
+        m[msg] = nasa_state[msg]
+        if nasa_is_msgnum_struct(msg):
+          has_struct = True
+          rawdata = struct.pack(">H", msg) + tools.hex2bin(nasa_state[msg])
+          m = {}
+      pgw.packet_tx(nasa_forge(0x14, msg_value=m, source="200000", dest="B0FFFF", msg=rawdata))
+
+      # set next sending time
+      notif_next_time = time.time() + 0.1
+    except:
+      log.error("Error sending packet")
+      traceback.print_exc()
+
+#32002750ffffb0ffffc01400 05 200401041800508e2b0217a2f4041700510000041900500000570834
+
+# launching emulator with a socket remote 
+# rlwrap stdbuf -i0 -o0 xxd -r -p |socat tcp-listen:7002 stdio | stdbuf -i0 -o0 xxd -p
