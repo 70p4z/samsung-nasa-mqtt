@@ -840,7 +840,7 @@ class NasaPacketParser:
         s = 4
       elif kind == 3:
         if dsCnt != 1:
-          raise BaseException("Invalid encoded packet containing a struct: "+tools.bin2hex(p))
+          raise BaseException("Invalid encoded packet containing a struct: " + hex(messageNumber)+ " in "+tools.bin2hex(p))
         ds.append([messageNumber, "STRUCTURE", p[off:], tools.bin2hex(p[off:]), p[off:], [p[off:]]])
         break
       value = p[off+2:off+2+s]
@@ -915,22 +915,27 @@ def resetnonce():
 
 def nasa_message_encode(messageNumber, val):
   msg=struct.pack(">H", messageNumber)
-  vallen=(messageNumber&0x700)>>8
-  if vallen == 0 or vallen == 1:
+  vallen=(messageNumber&0x600)>>8
+  if vallen == 0:
     if val > 127:
       val = 127
     if val < -128:
       val = -128
     msg+=struct.pack(">b", val)
-  if vallen == 2:
+  elif vallen == 2:
     if val > 32767:
       val = 32767
     if val < -32768:
       val = -32768
     msg+=struct.pack(">h", val)
-  if vallen == 4:
+  elif vallen == 4:
     msg+=struct.pack(">I", val&0xFFFFFFFF)
+  else:
+    raise BaseException("Can't encode message number: " + hex(messageNumber))
   return msg
+
+def nasa_is_msgnum_struct(messageNumber):
+  return (messageNumber&0x600) == 0x600
 
 def nasa_forge(instruction, msg_value={}, source=None, dest=None, msg=None, packetNumber=None):
   if not source:
@@ -946,9 +951,9 @@ def nasa_forge(instruction, msg_value={}, source=None, dest=None, msg=None, pack
     count = 1
   else:
     msg = b''
-  for intMsg in msg_value:
-    msg+=nasa_message_encode(intMsg, msg_value[intMsg])
-    count+=1
+    for intMsg in msg_value:
+      msg+=nasa_message_encode(intMsg, msg_value[intMsg])
+      count+=1
   return tools.hex2bin(source+dest)+struct.pack(">BBBB", 0xC0, instruction&0xFF, nonce&0xFF, count&0xFF)+msg
 
 def nasa_set(intMsgNumber, intvalue, source=None):
