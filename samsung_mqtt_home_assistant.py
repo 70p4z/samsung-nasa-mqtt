@@ -120,7 +120,9 @@ def nasa_update(msgnum, intval):
 
 def nasa_reset_state():
   global nasa_state
+  global mqtt_published_vars
   nasa_state = {}
+  mqtt_published_vars = {}
   log.info("reset NASA state")
   # default ambient values to avoid heating (0xC8 by default)
   if args.nasa_default_zone_temp:
@@ -531,7 +533,7 @@ def publisher_thread():
   # wait until IOs are setup
   time.sleep(10)
   nasa_last_publish = 0
-  time_update_flow_target = 0
+  time_update_fsv = 0
   time_check_fr_dr = 0
 
   if not args.nasa_pnp:
@@ -590,9 +592,9 @@ def publisher_thread():
         nasa_update_timeout_checks.remove(nutc)
 
       # update water flow target (each 10 seconds)
-      if time.time() > time_update_flow_target:
-        pgw.packet_tx(nasa_read([0x4202]))
-        time_update_flow_target = time.time()+10
+      if time.time() > time_update_fsv:
+        pgw.packet_tx(nasa_read([0x4202, 0x4236, 0x4238, ]))
+        time_update_fsv = time.time()+10
 
       # ensure DR is set to a correct value when FR is set
       if args.fr_5051_dr_default != 0 and time.time() > time_check_fr_dr:
@@ -644,8 +646,8 @@ def mqtt_startup_thread():
   def on_connect(client, userdata, flags, rc):
     global nasa_state
     if rc==0:
-      mqtt_setup()
       nasa_reset_state()
+      mqtt_setup()
       pass
 
   mqtt_client = mqtt.Client(clean_session=True)
