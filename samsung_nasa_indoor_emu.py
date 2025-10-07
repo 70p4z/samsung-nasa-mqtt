@@ -479,8 +479,6 @@ while True:
     try:
       lst = notif_list[:min(10, len(notif_list))]
       notif_list = notif_list[len(lst):]
-      log.info(repr(lst))
-      log.info(repr(notif_list))
 
       # forge packet from lst, ensure not to mix struct and regular values
       m = {}
