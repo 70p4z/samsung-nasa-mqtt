@@ -352,18 +352,6 @@ class DHWONOFFMQTTHandler(ONOFFSetMQTTHandler):
       global pgw
       nasa_cmd_with_check(nasa_dhw_power(intval == 1), 0x4065, intval)
 
-class COPMQTTHandler(MQTTHandler):
-  def publish(self, valueInt):
-    self.mqtt_client.publish(self.topic, valueInt, retain=True)
-    # compute COP and publish the value as well
-    # round at 2 digits
-    try:
-      if valueInt == 0:
-        valueInt = 14
-      self.mqtt_client.publish(self.topic + "_cop", int(nasa_state[nasa_message_name(0x4426)]*100 / valueInt)/100, retain=True)
-    except:
-      pass
-
 class Zone1IntDiv10MQTTHandler(SetMQTTHandler):
   def __init__(self, mqtt_client, topic, nasa_msgnum):
     super().__init__(mqtt_client, topic, nasa_msgnum, 10)
@@ -596,6 +584,39 @@ def publisher_thread():
         pgw.packet_tx(nasa_read([0x4202, 0x4236, 0x4238, ]))
         time_update_fsv = time.time()+10
 
+        try:
+          # update CoP
+          cop = int(nasa_state[nasa_message_name(0x4426)]*100 / nasa_state[nasa_message_name(0x8413)])/100
+
+          # update Carnot CoP
+          # Check this for doc: https://docs.openenergymonitor.org/heatpumps/basics.html#carnot-cop-equation
+          optimal_carnot_pct = 50
+          condensing_offset=2
+          evaporating_offset=-6
+          # LWT = t_flow
+          t_flow_name = nasa_message_name(0x4238)
+          # Outer = t_ambient at evaporation point
+          t_outer_name = nasa_message_name(0x420C)
+          t_condensing_K=nasa_state[t_flow_name]/10 +condensing_offset +273
+          t_evaporating_K=nasa_state[t_outer_name]/10 +evaporating_offset +273
+          carnot_cop = t_condensing_K / (t_condensing_K - t_evaporating_K) / 100
+          # percentage of the carnot cop
+          cop_opt_pct = int(cop * 100 / carnot_cop)
+          # rounding
+          carnot_cop = int(carnot_cop * 100) /100
+          # if operating, then 
+          if nasa_state[nasa_message_name(0x4028)] != 0:
+            mqtt_client.publish("homeassistant/sensor/samsung_ehs_cop/state", cop, retain=True)
+            mqtt_client.publish("homeassistant/sensor/samsung_ehs_carnot_cop/state", carnot_cop, retain=True)
+            mqtt_client.publish("homeassistant/sensor/samsung_ehs_carnot_cop_pct/state", cop_opt_pct, retain=True)
+          else:
+            # no cop when not operating
+            mqtt_client.publish("homeassistant/sensor/samsung_ehs_cop/state", 0, retain=True)
+            mqtt_client.publish("homeassistant/sensor/samsung_ehs_carnot_cop/state", 0, retain=True)
+            mqtt_client.publish("homeassistant/sensor/samsung_ehs_carnot_cop_pct/state", 0, retain=True)
+        except:
+          pass
+
       # ensure DR is set to a correct value when FR is set
       if args.fr_5051_dr_default != 0 and time.time() > time_check_fr_dr:
         time_check_fr_dr = time.time()+10
@@ -713,17 +734,25 @@ def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state
   return handler
 
 def mqtt_setup():
+  global mqtt_client
   mqtt_create_topic(0x202, 'homeassistant/sensor/samsung_ehs_error_code_1/config', None, 'Error Code 1', 'homeassistant/sensor/samsung_ehs_error_code_1/state', None, MQTTHandler, None)
 
   mqtt_create_topic(0x4427, 'homeassistant/sensor/samsung_ehs_total_output_power/config', 'energy', 'Total Output Power', 'homeassistant/sensor/samsung_ehs_total_output_power/state', 'Wh', MQTTHandler, None, {"state_class": "total_increasing"})
   mqtt_create_topic(0x8414, 'homeassistant/sensor/samsung_ehs_total_input_power/config', 'energy', 'Total Input Power', 'homeassistant/sensor/samsung_ehs_total_input_power/state', 'Wh', MQTTHandler, None, {"state_class": "total_increasing"})
   
   mqtt_create_topic(0x4426, 'homeassistant/sensor/samsung_ehs_current_output_power/config', 'energy', 'Output Power', 'homeassistant/sensor/samsung_ehs_current_output_power/state', 'W', MQTTHandler, None)
-  mqtt_create_topic(0x8413, 'homeassistant/sensor/samsung_ehs_current_input_power/config', 'energy', 'Input Power', 'homeassistant/sensor/samsung_ehs_current_input_power/state', 'W', COPMQTTHandler, None)
-  # special value published by the COPMQTTHandler
+  mqtt_create_topic(0x8413, 'homeassistant/sensor/samsung_ehs_current_input_power/config', 'energy', 'Input Power', 'homeassistant/sensor/samsung_ehs_current_input_power/state', 'W', MQTTHandler, None)
   mqtt_client.publish('homeassistant/sensor/samsung_ehs_cop/config', 
     payload=json.dumps({"name": "Operating COP", 
-                        "state_topic": 'homeassistant/sensor/samsung_ehs_current_input_power/state_cop'}), 
+                        "state_topic": 'homeassistant/sensor/samsung_ehs_cop/state'}), 
+    retain=True)
+  mqtt_client.publish('homeassistant/sensor/samsung_ehs_carnot_cop/config', 
+    payload=json.dumps({"name": "Optimal Carnot CoP", 
+                        "state_topic": 'homeassistant/sensor/samsung_ehs_carnot_cop/state'}), 
+    retain=True)
+  mqtt_client.publish('homeassistant/sensor/samsung_ehs_carnot_pct_cop/config', 
+    payload=json.dumps({"name": "Percentage of Carnot CoP", 
+                        "state_topic": 'homeassistant/sensor/samsung_ehs_carnot_cop_pct/state'}), 
     retain=True)
   # minimum flow set to 10% to avoid LWT raising exponentially
   mqtt_create_topic(0x40C4, 'homeassistant/number/samsung_ehs_inv_pump_pwm/config', 'power_factor', 'Inverter Pump PWM', 'homeassistant/number/samsung_ehs_inv_pump_pwm/state', '%', FSVSetMQTTHandler, 'homeassistant/number/samsung_ehs_inv_pump_pwm/set', {"min": 10, "max": 100, "step": 1})
