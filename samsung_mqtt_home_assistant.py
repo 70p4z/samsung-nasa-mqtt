@@ -497,6 +497,38 @@ def rx_nasa_handler(*nargs, **kwargs):
       mqtt_client.publish('homeassistant/sensor/samsung_ehs/nasa_'+hex(ds[0]), payload=ds[2], retain=True)
     except BaseException as e:
       log.error(e, exc_info=True)
+  try:
+    # update CoP
+    cop = int(nasa_state[nasa_message_name(0x4426)]*100 / nasa_state[nasa_message_name(0x8413)])/100
+
+    # update Carnot CoP
+    # Check this for doc: https://docs.openenergymonitor.org/heatpumps/basics.html#carnot-cop-equation
+    optimal_carnot_pct = 50
+    condensing_offset=2
+    evaporating_offset=-6
+    # LWT = t_flow
+    t_flow_name = nasa_message_name(0x4238)
+    # Outer = t_ambient at evaporation point
+    t_outer_name = nasa_message_name(0x420C)
+    t_condensing_K=nasa_state[t_flow_name]/10 +condensing_offset +273
+    t_evaporating_K=nasa_state[t_outer_name]/10 +evaporating_offset +273
+    carnot_cop = t_condensing_K / (t_condensing_K - t_evaporating_K)
+    # percentage of the carnot cop
+    cop_opt_pct = int(cop * 100 / carnot_cop)
+    # rounding
+    carnot_cop = int(carnot_cop * 100) /100
+    # if operating, then 
+    if nasa_state[nasa_message_name(0x4028)] != 0:
+      mqtt_client.publish("homeassistant/sensor/samsung_ehs_cop/state", cop, retain=True)
+      mqtt_client.publish("homeassistant/sensor/samsung_ehs_carnot_cop/state", carnot_cop, retain=True)
+      mqtt_client.publish("homeassistant/sensor/samsung_ehs_carnot_cop_pct/state", cop_opt_pct, retain=True)
+    else:
+      # no cop when not operating
+      mqtt_client.publish("homeassistant/sensor/samsung_ehs_cop/state", 0, retain=True)
+      mqtt_client.publish("homeassistant/sensor/samsung_ehs_carnot_cop/state", 0, retain=True)
+      mqtt_client.publish("homeassistant/sensor/samsung_ehs_carnot_cop_pct/state", 0, retain=True)
+  except:
+    pass
 
 def rx_event_nasa(p):
   log.debug("packet received "+ tools.bin2hex(p))
@@ -583,39 +615,6 @@ def publisher_thread():
       if time.time() > time_update_fsv:
         pgw.packet_tx(nasa_read([0x4202, 0x4236, 0x4238, ]))
         time_update_fsv = time.time()+10
-
-        try:
-          # update CoP
-          cop = int(nasa_state[nasa_message_name(0x4426)]*100 / nasa_state[nasa_message_name(0x8413)])/100
-
-          # update Carnot CoP
-          # Check this for doc: https://docs.openenergymonitor.org/heatpumps/basics.html#carnot-cop-equation
-          optimal_carnot_pct = 50
-          condensing_offset=2
-          evaporating_offset=-6
-          # LWT = t_flow
-          t_flow_name = nasa_message_name(0x4238)
-          # Outer = t_ambient at evaporation point
-          t_outer_name = nasa_message_name(0x420C)
-          t_condensing_K=nasa_state[t_flow_name]/10 +condensing_offset +273
-          t_evaporating_K=nasa_state[t_outer_name]/10 +evaporating_offset +273
-          carnot_cop = t_condensing_K / (t_condensing_K - t_evaporating_K) / 100
-          # percentage of the carnot cop
-          cop_opt_pct = int(cop * 100 / carnot_cop)
-          # rounding
-          carnot_cop = int(carnot_cop * 100) /100
-          # if operating, then 
-          if nasa_state[nasa_message_name(0x4028)] != 0:
-            mqtt_client.publish("homeassistant/sensor/samsung_ehs_cop/state", cop, retain=True)
-            mqtt_client.publish("homeassistant/sensor/samsung_ehs_carnot_cop/state", carnot_cop, retain=True)
-            mqtt_client.publish("homeassistant/sensor/samsung_ehs_carnot_cop_pct/state", cop_opt_pct, retain=True)
-          else:
-            # no cop when not operating
-            mqtt_client.publish("homeassistant/sensor/samsung_ehs_cop/state", 0, retain=True)
-            mqtt_client.publish("homeassistant/sensor/samsung_ehs_carnot_cop/state", 0, retain=True)
-            mqtt_client.publish("homeassistant/sensor/samsung_ehs_carnot_cop_pct/state", 0, retain=True)
-        except:
-          pass
 
       # ensure DR is set to a correct value when FR is set
       if args.fr_5051_dr_default != 0 and time.time() > time_check_fr_dr:
