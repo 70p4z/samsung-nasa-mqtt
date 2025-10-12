@@ -739,8 +739,8 @@ def mqtt_setup():
   mqtt_create_topic(0x4427, 'homeassistant/sensor/samsung_ehs_total_output_power/config', 'energy', 'Total Output Power', 'homeassistant/sensor/samsung_ehs_total_output_power/state', 'Wh', MQTTHandler, None, {"state_class": "total_increasing"})
   mqtt_create_topic(0x8414, 'homeassistant/sensor/samsung_ehs_total_input_power/config', 'energy', 'Total Input Power', 'homeassistant/sensor/samsung_ehs_total_input_power/state', 'Wh', MQTTHandler, None, {"state_class": "total_increasing"})
   
-  mqtt_create_topic(0x4426, 'homeassistant/sensor/samsung_ehs_current_output_power/config', 'energy', 'Output Power', 'homeassistant/sensor/samsung_ehs_current_output_power/state', 'W', MQTTHandler, None)
-  mqtt_create_topic(0x8413, 'homeassistant/sensor/samsung_ehs_current_input_power/config', 'energy', 'Input Power', 'homeassistant/sensor/samsung_ehs_current_input_power/state', 'W', MQTTHandler, None)
+  mqtt_create_topic(0x4426, 'homeassistant/sensor/samsung_ehs_current_output_power/config', 'power', 'Output Power', 'homeassistant/sensor/samsung_ehs_current_output_power/state', 'W', MQTTHandler, None)
+  mqtt_create_topic(0x8413, 'homeassistant/sensor/samsung_ehs_current_input_power/config', 'power', 'Input Power', 'homeassistant/sensor/samsung_ehs_current_input_power/state', 'W', MQTTHandler, None)
   mqtt_client.publish('homeassistant/sensor/samsung_ehs_cop/config', 
     payload=json.dumps({"name": "Operating COP", 
                         "state_topic": 'homeassistant/sensor/samsung_ehs_cop/state'}), 
@@ -907,7 +907,7 @@ def mqtt_setup():
   optmap={"Room(0)":0, "Tank(1)":1}
   mqtt_create_topic(0x409D, 'homeassistant/select/samsung_ehs_3071_water_tank_default_dir/config', None, 'FSV3071 DHW V3V Default Direction', 'homeassistant/select/samsung_ehs_3071_water_tank_default_dir/state', None, FSVStringIntMQTTHandler, 'homeassistant/select/samsung_ehs_3071_water_tank_default_dir/set', {"options": [*optmap]}, optmap)
   optmap={"0":0, "1":1}
-  mqtt_create_topic(0x408b, 'homeassistant/sensor/samsung_ehs_dhw_3way_valve_dir/config', None, 'DHW Valve Direction Tank', 'homeassistant/sensor/samsung_ehs_dhw_3way_valve_dir/state', None, FSVStringIntMQTTHandler, None, {"options": [*optmap]}, optmap)
+  mqtt_create_topic(0x408b, 'homeassistant/sensor/samsung_ehs_dhw_3way_valve_dir/config', 'enum', 'DHW Valve Direction Tank', 'homeassistant/sensor/samsung_ehs_dhw_3way_valve_dir/state', None, FSVStringIntMQTTHandler, None, {"options": [*optmap]}, optmap)
 
   mqtt_create_topic(0x40A7, 'homeassistant/switch/samsung_ehs_5051_fr_control/config', None, 'FSV5051 FR control', 'homeassistant/switch/samsung_ehs_5051_fr_control/state', None, FSVONOFFMQTTHandler, 'homeassistant/switch/samsung_ehs_5051_fr_control/set')
   mqtt_create_topic(0x42F1, 'homeassistant/number/samsung_ehs_505x_fr_limit/config', None, 'FSV505x FR limit', 'homeassistant/number/samsung_ehs_505x_fr_limit/state', None, FSVFreqLimitMQTTHandler, 'homeassistant/number/samsung_ehs_505x_fr_limit/set', {"min": 0, "max": 150, "step": 10})
