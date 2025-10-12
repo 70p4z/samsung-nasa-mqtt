@@ -613,7 +613,7 @@ def publisher_thread():
 
       # update water flow target (each 10 seconds)
       if time.time() > time_update_fsv:
-        pgw.packet_tx(nasa_read([0x4202, 0x4236, 0x4238, ]))
+        pgw.packet_tx(nasa_read([0x4202, 0x4236, 0x4238, 0x4067]))
         time_update_fsv = time.time()+10
 
       # ensure DR is set to a correct value when FR is set
@@ -742,15 +742,15 @@ def mqtt_setup():
   mqtt_create_topic(0x4426, 'homeassistant/sensor/samsung_ehs_current_output_power/config', 'power', 'Output Power', 'homeassistant/sensor/samsung_ehs_current_output_power/state', 'W', MQTTHandler, None)
   mqtt_create_topic(0x8413, 'homeassistant/sensor/samsung_ehs_current_input_power/config', 'power', 'Input Power', 'homeassistant/sensor/samsung_ehs_current_input_power/state', 'W', MQTTHandler, None)
   mqtt_client.publish('homeassistant/sensor/samsung_ehs_cop/config', 
-    payload=json.dumps({"name": "Operating COP", 
+    payload=json.dumps({"name": "EHS Operating COP", 
                         "state_topic": 'homeassistant/sensor/samsung_ehs_cop/state'}), 
     retain=True)
   mqtt_client.publish('homeassistant/sensor/samsung_ehs_carnot_cop/config', 
-    payload=json.dumps({"name": "Optimal Carnot CoP", 
+    payload=json.dumps({"name": "EHS Carnot CoP", 
                         "state_topic": 'homeassistant/sensor/samsung_ehs_carnot_cop/state'}), 
     retain=True)
   mqtt_client.publish('homeassistant/sensor/samsung_ehs_carnot_pct_cop/config', 
-    payload=json.dumps({"name": "Percentage of Carnot CoP", 
+    payload=json.dumps({"name": "EHS % of Carnot CoP", 
                         "state_topic": 'homeassistant/sensor/samsung_ehs_carnot_cop_pct/state'}), 
     retain=True)
   # minimum flow set to 10% to avoid LWT raising exponentially
