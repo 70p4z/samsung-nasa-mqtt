@@ -774,7 +774,7 @@ nasa_message_numbers = [
 [0x8613,  "STR_OUT_REF_CHECK_INFO"],
 [0x4090,  "NASA_OUTDOOR_AIR_EFFICIENCY"],
 [0x40b2,  "RE_2"],
-[0x408b,  "NASA_DHW_3WAY_DIR"],
+[0x408b,  "NASA_DHW_OPERATING"],
 ]
 
 NasaPacketTypes = [
