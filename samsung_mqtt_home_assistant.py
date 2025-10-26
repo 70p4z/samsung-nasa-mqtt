@@ -436,7 +436,8 @@ def rx_nasa_handler(*nargs, **kwargs):
     return
 
   # only interpret values from the heatpump, ignore other controllers (especially for the E653 error on overriden zone)
-  if source[0]&0xF0 != 0x20:
+  # only accept indoor and outdoor units
+  if source[0]&0xF0 != 0x20 and source[0]&0xF0 != 0x10:
     log.info("ignoring packet from that source")
     return
 
