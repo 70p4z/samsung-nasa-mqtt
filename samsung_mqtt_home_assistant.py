@@ -15,10 +15,16 @@ from nasa_messages import *
 
 from logger import log
 
+import configargparse
+
 def auto_int(x):
   return int(x, 0)
 
-parser = argparse.ArgumentParser()
+
+
+#parser = argparse.ArgumentParser()
+parser = configargparse.ArgParser(default_config_files=['/etc/samsung-ehs-mqtt/conf.d/*.conf', 'samsung-ehs-mqtt.conf'])
+parser.add('-c', '--config', required=False, is_config_file=True, help='config file path')
 parser.add_argument('--mqtt-host', default="localhost", help="host to connect to the MQTT broker")
 parser.add_argument('--mqtt-port', default="1883", type=auto_int, help="port of the MQTT broker")
 parser.add_argument('--mqtt-username', help="username to connect to the MQTT broker")
