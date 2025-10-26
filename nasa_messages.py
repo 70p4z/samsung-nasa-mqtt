@@ -981,7 +981,7 @@ def nasa_set_zone1_temperature(temp, source=None):
   # notifying of the value
   temp = int(temp*10)
   ds = {}
-  ds[0x4076] = 1
+  ds[0x4076] = 1 #wired remote controller temperature (0 => indoor unit)
   ds[0x423A] = temp # processed and reflected in 0x4203
   #ds[0x4203] = temp IGNORED!
   return nasa_forge(0x14, ds, source)
@@ -994,7 +994,7 @@ def nasa_set_zone2_temperature(temp, source=None):
   # notifying of the value
   temp = int(temp*10)
   ds = {}
-  ds[0x4118] = 1
+  ds[0x4118] = 1 #wired remote controller temperature (0 => indoor unit)
   ds[0x42DA] = temp # processed and reflected in 0x42D4
   #ds[0x42D4] = temp IGNORED!
   return nasa_forge(0x14, ds, source)
