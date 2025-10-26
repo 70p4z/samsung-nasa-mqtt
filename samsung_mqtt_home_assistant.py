@@ -43,6 +43,9 @@ parser.add_argument('--nasa-mqtt-prefix', default="EHS", help="prefix for topic 
 parser.add_argument('--fr-5051-dr-default', default="50", type=auto_int, help="Default value to set DR when FR (FSV#5051) is set and DR is not or invalid (0x42F1)")
 args = parser.parse_args()
 
+# display actual parameters used and where they are set from
+print(parser.format_values())
+
 # NASA state
 nasa_state = {}
 nasa_fsv_unlocked = False
