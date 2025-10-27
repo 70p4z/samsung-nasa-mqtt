@@ -44,7 +44,7 @@ parser.add_argument('--fr-5051-dr-default', default="50", type=auto_int, help="D
 args = parser.parse_args()
 
 # display actual parameters used and where they are set from
-print(parser.format_values())
+log.info(parser.format_values())
 
 # NASA state
 nasa_state = {}
