@@ -523,19 +523,20 @@ def rx_nasa_handler(*nargs, **kwargs):
     # update Carnot CoP
     # Check this for doc: https://docs.openenergymonitor.org/heatpumps/basics.html#carnot-cop-equation
     optimal_carnot_pct = 50
-    condensing_offset=2
-    evaporating_offset=-6
+    condensing_offset=2 # +4 on samsung (sensor top1 0x8280)
+    evaporating_offset=-6 # -4.5 on samsung (sensor suction 0x821A)
     # LWT = t_flow
     t_flow_name = nasa_message_name(0x4238)
     # Outer = t_ambient at evaporation point
     t_outer_name = nasa_message_name(0x420C)
+    # compute carnot cop approx with offsets
     t_condensing_K=nasa_state[t_flow_name]/10 +condensing_offset +273
     t_evaporating_K=nasa_state[t_outer_name]/10 +evaporating_offset +273
     carnot_cop = t_condensing_K / (t_condensing_K - t_evaporating_K)
-    # percentage of the carnot cop
-    cop_opt_pct = int(cop * 100 / carnot_cop)
-    # rounding
-    carnot_cop = int(carnot_cop * 100) /100
+    # percentage of the carnot cop (cannot go higher than carnot cop :))
+    cop_opt_pct = min(100, int(cop * 100 / carnot_cop))
+    # rounding (min value is 20, rule of thumb)
+    carnot_cop = min(20, int(carnot_cop * 100) /100)
     # if operating, then 
     if nasa_state[nasa_message_name(0x4028)] != 0:
       mqtt_client.publish("homeassistant/sensor/samsung_ehs_cop/state", cop, retain=True)
