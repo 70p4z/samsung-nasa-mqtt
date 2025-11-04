@@ -15,16 +15,18 @@ from nasa_messages import *
 
 from logger import log
 
-import configargparse
 
 def auto_int(x):
   return int(x, 0)
 
+try:
+  from configargparse import ArgParser
+  parser = configargparse.ArgParser(default_config_files=['/etc/samsung-ehs-mqtt/conf.d/*.conf', 'samsung-ehs-mqtt.conf'])
+  parser.add_argument('-c', '--config', required=False, is_config_file=True, help='config file path')
+except:
+  import argparse
+  parser = argparse.ArgumentParser()
 
-
-#parser = argparse.ArgumentParser()
-parser = configargparse.ArgParser(default_config_files=['/etc/samsung-ehs-mqtt/conf.d/*.conf', 'samsung-ehs-mqtt.conf'])
-parser.add('-c', '--config', required=False, is_config_file=True, help='config file path')
 parser.add_argument('--mqtt-host', default="localhost", help="host to connect to the MQTT broker")
 parser.add_argument('--mqtt-port', default="1883", type=auto_int, help="port of the MQTT broker")
 parser.add_argument('--mqtt-username', help="username to connect to the MQTT broker")
@@ -44,7 +46,10 @@ parser.add_argument('--fr-5051-dr-default', default="50", type=auto_int, help="D
 args = parser.parse_args()
 
 # display actual parameters used and where they are set from
-log.info(parser.format_values())
+try:
+  log.info(parser.format_values())
+except:
+  pass
 
 # NASA state
 nasa_state = {}
