@@ -62,6 +62,8 @@ NASA_PNP_TIMEOUT=30
 NASA_PNP_CHECK_INTERVAL=30
 NASA_PNP_CHECK_RETRIES=10 # avoid fault on PNP to avoid temp to be messed up and the ASHP to stall
 NASA_PNP_RESPONSE_TIMEOUT=10
+NASA_DR_UPDATE_INTERVAL=60
+NASA_MANUAL_UPDATE_INTERVAL=15
 nasa_pnp_time=0
 nasa_pnp_check_retries=0
 nasa_pnp_ended=False
@@ -639,19 +641,22 @@ def publisher_thread():
       # update water flow target (each 10 seconds)
       if time.time() > time_update_fsv:
         pgw.packet_tx(nasa_read([0x4202, 0x4236, 0x4238, 0x4067]))
-        time_update_fsv = time.time()+10
+        time_update_fsv = time.time()+NASA_MANUAL_UPDATE_INTERVAL
 
       # ensure DR is set to a correct value when FR is set
       if args.fr_5051_dr_default != 0 and time.time() > time_check_fr_dr:
-        time_check_fr_dr = time.time()+10
+        time_check_fr_dr = time.time()+NASA_DR_UPDATE_INTERVAL
         fr_5051_name = nasa_message_name(0x40A7)
         dr_505x_name = nasa_message_name(0x42F1)
-        # when Frequency Control is enabled
+        # when Frequency Control is enabled, then ensure its value is set
         if fr_5051_name in nasa_state and nasa_state[fr_5051_name] != 0:
           # if DR is not set, or its value is not set within range, then force the value
           if not dr_505x_name in nasa_state or ( nasa_state[dr_505x_name] < (0x100+50) or nasa_state[dr_505x_name] > (0x100+150) ):
             dr_value = 0x100+max(50,min(args.fr_5051_dr_default,150))
-            nasa_cmd_with_check(nasa_write(0x42F1, dr_value), 0x42F1, dr_value)
+            nasa_state[dr_505x_name] = dr_value
+          # set the value every now and then to avoid value timeout
+          # don't use check, as the write has no response oftenly, only a notification
+          pgw.packet_tx(nasa_write(0x42F1, nasa_state[dr_505x_name]))
 
       if args.nasa_pnp:
         # start PNP
