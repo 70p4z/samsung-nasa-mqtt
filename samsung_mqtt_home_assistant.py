@@ -9,7 +9,7 @@ import paho.mqtt.client as mqtt
 import json
 import sys
 import signal
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from nasa_messages import *
 
@@ -433,7 +433,6 @@ def rx_nasa_handler(*nargs, **kwargs):
   global nasa_pnp_ended
   global desynch
   global nasa_state
-  last_nasa_rx = time.time()
   packetType = kwargs["packetType"]
   payloadType = kwargs["payloadType"]
   packetNumber = kwargs["packetNumber"]
@@ -464,6 +463,9 @@ def rx_nasa_handler(*nargs, **kwargs):
   if payloadType != "notification" and payloadType != "write" and payloadType != "response":
     log.info("ignoring packet instruction")
     return
+
+  last_nasa_rx = time.time()
+  mqtt_client.publish('homeassistant/sensor/samsung_ehs_last_activity/state', datetime.now(timezone.utc).replace(microsecond=0).isoformat(), retain=True)
 
   if args.promiscious:
     return
@@ -764,13 +766,11 @@ def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state
 
 def mqtt_setup():
   global mqtt_client
-  mqtt_create_topic(0x202, 'homeassistant/sensor/samsung_ehs_error_code_1/config', None, 'Error Code 1', 'homeassistant/sensor/samsung_ehs_error_code_1/state', None, ErrorCodeMQTTHandler, None)
-
-  mqtt_create_topic(0x4427, 'homeassistant/sensor/samsung_ehs_total_output_power/config', 'energy', 'Total Output Power', 'homeassistant/sensor/samsung_ehs_total_output_power/state', 'Wh', MQTTHandler, None, {"state_class": "total_increasing"})
-  mqtt_create_topic(0x8414, 'homeassistant/sensor/samsung_ehs_total_input_power/config', 'energy', 'Total Input Power', 'homeassistant/sensor/samsung_ehs_total_input_power/state', 'Wh', MQTTHandler, None, {"state_class": "total_increasing"})
-  
-  mqtt_create_topic(0x4426, 'homeassistant/sensor/samsung_ehs_current_output_power/config', 'power', 'Output Power', 'homeassistant/sensor/samsung_ehs_current_output_power/state', 'W', MQTTHandler, None)
-  mqtt_create_topic(0x8413, 'homeassistant/sensor/samsung_ehs_current_input_power/config', 'power', 'Input Power', 'homeassistant/sensor/samsung_ehs_current_input_power/state', 'W', MQTTHandler, None)
+  mqtt_client.publish('homeassistant/sensor/samsung_ehs_last_activity/config', 
+    payload=json.dumps({"name": "EHS Last Activity", 
+                        "state_topic": 'homeassistant/sensor/samsung_ehs_last_activity/state',
+                        "device_class": 'timestamp'}), 
+    retain=True)
   mqtt_client.publish('homeassistant/sensor/samsung_ehs_cop/config', 
     payload=json.dumps({"name": "EHS Operating COP", 
                         "state_topic": 'homeassistant/sensor/samsung_ehs_cop/state',
@@ -787,6 +787,13 @@ def mqtt_setup():
                         "device_class": 'power_factor',
                         'unit_of_measurement': "%"}), 
     retain=True)
+  mqtt_create_topic(0x202, 'homeassistant/sensor/samsung_ehs_error_code_1/config', None, 'Error Code 1', 'homeassistant/sensor/samsung_ehs_error_code_1/state', None, ErrorCodeMQTTHandler, None)
+
+  mqtt_create_topic(0x4427, 'homeassistant/sensor/samsung_ehs_total_output_power/config', 'energy', 'Total Output Power', 'homeassistant/sensor/samsung_ehs_total_output_power/state', 'Wh', MQTTHandler, None, {"state_class": "total_increasing"})
+  mqtt_create_topic(0x8414, 'homeassistant/sensor/samsung_ehs_total_input_power/config', 'energy', 'Total Input Power', 'homeassistant/sensor/samsung_ehs_total_input_power/state', 'Wh', MQTTHandler, None, {"state_class": "total_increasing"})
+  
+  mqtt_create_topic(0x4426, 'homeassistant/sensor/samsung_ehs_current_output_power/config', 'power', 'Output Power', 'homeassistant/sensor/samsung_ehs_current_output_power/state', 'W', MQTTHandler, None)
+  mqtt_create_topic(0x8413, 'homeassistant/sensor/samsung_ehs_current_input_power/config', 'power', 'Input Power', 'homeassistant/sensor/samsung_ehs_current_input_power/state', 'W', MQTTHandler, None)
   # minimum flow set to 10% to avoid LWT raising exponentially
   mqtt_create_topic(0x40C4, 'homeassistant/number/samsung_ehs_inv_pump_pwm/config', 'power_factor', 'Inverter Pump PWM', 'homeassistant/number/samsung_ehs_inv_pump_pwm/state', '%', FSVSetMQTTHandler, 'homeassistant/number/samsung_ehs_inv_pump_pwm/set', {"min": 10, "max": 100, "step": 1})
 
