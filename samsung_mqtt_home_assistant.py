@@ -466,7 +466,7 @@ def rx_nasa_handler(*nargs, **kwargs):
 
   last_nasa_rx = time.time()
   if mqtt_client:
-    mqtt_client.publish('homeassistant/switch/samsung_ehs_lost_communication/state', 'OFF', retain=True)
+    mqtt_client.publish('homeassistant/binary_sensor/samsung_ehs_lost_communication/state', 'OFF', retain=True)
 
   if args.promiscious:
     return
@@ -598,7 +598,7 @@ def publisher_thread():
       if args.nasa_timeout > 0 and last_nasa_rx + args.nasa_timeout < time.time():
         log.info("Communication lost!")
         if mqtt_client:
-          mqtt_client.publish('homeassistant/switch/samsung_ehs_lost_communication/state', 'ON', retain=True)
+          mqtt_client.publish('homeassistant/binary_sensor/samsung_ehs_lost_communication/state', 'ON', retain=True)
         # give some time to propagate to MQTT
         time.sleep(15)
         os.kill(os.getpid(), signal.SIGTERM)
@@ -775,9 +775,9 @@ def mqtt_create_topic(nasa_msgnum, topic_config, device_class, name, topic_state
 
 def mqtt_setup():
   global mqtt_client
-  mqtt_client.publish('homeassistant/switch/samsung_ehs_lost_communication/config', 
+  mqtt_client.publish('homeassistant/binary_sensor/samsung_ehs_lost_communication/config', 
     payload=json.dumps({"name": "EHS Lost Communication", 
-                        "state_topic": 'homeassistant/switch/samsung_ehs_lost_communication/state'}), 
+                        "state_topic": 'homeassistant/binary_sensor/samsung_ehs_lost_communication/state'}), 
     retain=True)
   mqtt_client.publish('homeassistant/sensor/samsung_ehs_cop/config', 
     payload=json.dumps({"name": "EHS Operating COP", 
